@@ -705,26 +705,6 @@ export function FloorPlanCanvas({
             )
           })}
       </Pressable>
-
-      {/* Legend */}
-      <View style={styles.legend}>
-        <View style={styles.legendItem}>
-          <View style={[styles.legendDot, { backgroundColor: Neo.lime }]} />
-          <Text style={styles.legendText}>OPEN</Text>
-        </View>
-        <View style={styles.legendItem}>
-          <View style={[styles.legendDot, { backgroundColor: Neo.cyan }]} />
-          <Text style={styles.legendText}>SEATED</Text>
-        </View>
-        <View style={styles.legendItem}>
-          <View style={[styles.legendDot, { backgroundColor: Neo.orange }]} />
-          <Text style={styles.legendText}>SOON</Text>
-        </View>
-        <View style={styles.legendItem}>
-          <View style={[styles.legendDot, { backgroundColor: Neo.pink }]} />
-          <Text style={styles.legendText}>BUSY</Text>
-        </View>
-      </View>
     </View>
   )
 }
@@ -863,33 +843,6 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: Neo.black,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-  },
-  legend: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    paddingVertical: 8,
-    gap: 16,
-    borderTopWidth: NeoBorder.thin,
-    borderTopColor: Neo.black,
-    backgroundColor: Neo.white,
-  },
-  legendItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  legendDot: {
-    width: 10,
-    height: 10,
-    borderWidth: 1,
-    borderColor: Neo.black,
-  },
-  legendText: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: Neo.black,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    letterSpacing: 0.5,
   },
   emptyContainer: {
     flex: 1,

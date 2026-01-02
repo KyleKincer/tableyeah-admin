@@ -39,11 +39,12 @@ import { SeatWaitlistSheet } from '@/components/service/SeatWaitlistSheet'
 import { ServerAssignmentSheet } from '@/components/service/ServerAssignmentSheet'
 import { SelectionActionBar } from '@/components/service/SelectionActionBar'
 import { DragProvider, DraggableRow } from '@/components/dnd'
+import { TimelineView } from '@/components/service/TimelineView'
 import { useServiceStore } from '@/lib/store/service'
 import type { Reservation, ReservationStatus, WaitlistEntry, TableWithStatus } from '@/lib/types'
 import type { DragPayload } from '@/lib/store/drag'
 
-type ViewMode = 'floor' | 'list' | 'waitlist'
+type ViewMode = 'floor' | 'timeline' | 'list' | 'waitlist'
 type ListPaneTab = 'arrivals' | 'waitlist'
 
 // Group reservations for service view
@@ -496,7 +497,7 @@ function ServiceHeader({
     )
   }
 
-  // Tablet layout - original design
+  // Tablet layout - all controls in single row
   return (
     <View style={styles.header}>
       <View style={styles.headerTop}>
@@ -516,7 +517,44 @@ function ServiceHeader({
           </Text>
         </Pressable>
 
-        {/* View mode toggle - Tablet: FLOOR/LIST */}
+        {/* Date selector - integrated into toolbar */}
+        <View style={styles.dateSelectorInline}>
+          <Pressable
+            style={[styles.dateButtonInline, prevPressed && styles.dateButtonPressed]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+              onDateChange(subDays(date, 1))
+            }}
+            onPressIn={() => setPrevPressed(true)}
+            onPressOut={() => setPrevPressed(false)}
+          >
+            <Text style={styles.dateButtonText}>{'<'}</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.dateDisplayInline, datePressed && styles.dateDisplayPressed]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+              onOpenPicker()
+            }}
+            onPressIn={() => setDatePressed(true)}
+            onPressOut={() => setDatePressed(false)}
+          >
+            <Text style={styles.dateText}>{dateLabel}</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.dateButtonInline, nextPressed && styles.dateButtonPressed]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+              onDateChange(addDays(date, 1))
+            }}
+            onPressIn={() => setNextPressed(true)}
+            onPressOut={() => setNextPressed(false)}
+          >
+            <Text style={styles.dateButtonText}>{'>'}</Text>
+          </Pressable>
+        </View>
+
+        {/* View mode toggle - Tablet: FLOOR/TIMELINE/LIST */}
         <View style={styles.viewToggle}>
           <Pressable
             style={[
@@ -535,6 +573,25 @@ function ServiceHeader({
               ]}
             >
               FLOOR
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[
+              styles.viewToggleButton,
+              viewMode === 'timeline' && styles.viewToggleButtonActive,
+            ]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+              onViewModeChange('timeline')
+            }}
+          >
+            <Text
+              style={[
+                styles.viewToggleText,
+                viewMode === 'timeline' && styles.viewToggleTextActive,
+              ]}
+            >
+              TIME
             </Text>
           </Pressable>
           <Pressable
@@ -582,43 +639,6 @@ function ServiceHeader({
           onPressOut={() => setWalkInPressed(false)}
         >
           <Text style={styles.walkInButtonText}>+ WALK-IN</Text>
-        </Pressable>
-      </View>
-
-      {/* Date selector */}
-      <View style={styles.dateSelector}>
-        <Pressable
-          style={[styles.dateButton, prevPressed && styles.dateButtonPressed]}
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-            onDateChange(subDays(date, 1))
-          }}
-          onPressIn={() => setPrevPressed(true)}
-          onPressOut={() => setPrevPressed(false)}
-        >
-          <Text style={styles.dateButtonText}>{'<'}</Text>
-        </Pressable>
-        <Pressable
-          style={[styles.dateDisplay, datePressed && styles.dateDisplayPressed]}
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
-            onOpenPicker()
-          }}
-          onPressIn={() => setDatePressed(true)}
-          onPressOut={() => setDatePressed(false)}
-        >
-          <Text style={styles.dateText}>{dateLabel}</Text>
-        </Pressable>
-        <Pressable
-          style={[styles.dateButton, nextPressed && styles.dateButtonPressed]}
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-            onDateChange(addDays(date, 1))
-          }}
-          onPressIn={() => setNextPressed(true)}
-          onPressOut={() => setNextPressed(false)}
-        >
-          <Text style={styles.dateButtonText}>{'>'}</Text>
         </Pressable>
       </View>
     </View>
@@ -705,8 +725,9 @@ export default function ServiceScreen() {
   }, [refetch, refetchTables])
 
   // Set correct initial viewMode based on device type
+  // Floor and Timeline views are tablet-only
   useEffect(() => {
-    if (!isTablet && viewMode === 'floor') {
+    if (!isTablet && (viewMode === 'floor' || viewMode === 'timeline')) {
       setViewMode('list')
     }
   }, [isTablet, viewMode])
@@ -1326,6 +1347,16 @@ export default function ServiceScreen() {
           waitlistEntry={selectedWaitlistEntry}
           onSeatWaitlistAtTable={handleSeatWaitlistAtTableFromFloorPlan}
         />
+      ) : viewMode === 'timeline' ? (
+        <TimelineView
+          date={dateString}
+          reservations={reservations}
+          tables={tablesWithStatus}
+          seatingSettings={null}
+          isLiveMode={isLiveMode}
+          selectedReservationId={selectedReservation?.id || null}
+          onReservationPress={handleReservationPress}
+        />
       ) : viewMode === 'waitlist' ? (
         /* Phone waitlist view */
         <ScrollView
@@ -1640,6 +1671,31 @@ const styles = StyleSheet.create({
     gap: 12,
     borderTopWidth: NeoBorder.thin,
     borderTopColor: Neo.black + '30',
+  },
+  dateSelectorInline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 0,
+  },
+  dateButtonInline: {
+    width: 36,
+    height: 36,
+    backgroundColor: Neo.white,
+    borderWidth: NeoBorder.thin,
+    borderColor: Neo.black,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  dateDisplayInline: {
+    height: 36,
+    minWidth: 100,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Neo.yellow,
+    borderTopWidth: NeoBorder.thin,
+    borderBottomWidth: NeoBorder.thin,
+    borderColor: Neo.black,
+    paddingHorizontal: 12,
   },
   dateSelectorPhone: {
     flexDirection: 'row',

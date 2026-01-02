@@ -37,8 +37,8 @@ export function NeoDotsBackground({
   dotOpacity = 0.15,
 }: NeoDotsBackgroundProps) {
   return (
-    <View style={styles.container} pointerEvents="none">
-      <Svg width="100%" height="100%" style={styles.svg}>
+    <View style={StyleSheet.absoluteFill} pointerEvents="none">
+      <Svg style={StyleSheet.absoluteFill}>
         <Defs>
           <Pattern
             id="neo-dots"
@@ -57,24 +57,9 @@ export function NeoDotsBackground({
             />
           </Pattern>
         </Defs>
-        <Rect width="100%" height="100%" fill="url(#neo-dots)" />
+        <Rect x="0" y="0" width="100%" height="100%" fill="url(#neo-dots)" />
       </Svg>
     </View>
   )
 }
 
-const styles = StyleSheet.create({
-  container: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    overflow: 'hidden',
-  },
-  svg: {
-    flex: 1,
-    width: '100%',
-    height: '100%',
-  },
-})

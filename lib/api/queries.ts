@@ -409,3 +409,30 @@ export function useOperatingHours() {
     staleTime: 1000 * 60 * 5, // 5 minutes
   })
 }
+
+// Occupancy timeline for pacing graph
+interface OccupancySlot {
+  time: string // "HH:MM"
+  covers: number
+}
+
+interface OccupancyTimelineResponse {
+  slots: OccupancySlot[]
+  peakCovers: number
+  totalCovers: number
+  openTime: string
+  closeTime: string
+}
+
+export function useOccupancyTimeline(date: string, enabled: boolean = true) {
+  const api = useApiClient()
+
+  return useQuery({
+    queryKey: ['occupancy-timeline', date],
+    queryFn: () => api.get<OccupancyTimelineResponse>(`/api/admin/occupancy-timeline?date=${date}`),
+    enabled: !!date && enabled,
+    staleTime: 1000 * 30, // 30 seconds
+    refetchInterval: 60000, // Refresh every minute for live updates
+    placeholderData: keepPreviousData,
+  })
+}

@@ -1287,3 +1287,22 @@ export function useDeleteZonePacingRule() {
     },
   })
 }
+
+// Reassign reservation to different table(s)
+export function useReassignReservationTable() {
+  const api = useApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ reservationId, tableIds }: { reservationId: number; tableIds: number[] }) =>
+      api.put<Reservation>(`/api/admin/reservations/${reservationId}`, {
+        table_ids: tableIds,
+      }),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['reservations'] })
+      queryClient.invalidateQueries({ queryKey: ['reservation', variables.reservationId] })
+      queryClient.invalidateQueries({ queryKey: ['tables-with-status'] })
+      queryClient.invalidateQueries({ queryKey: ['occupancy-timeline'] })
+    },
+  })
+}
