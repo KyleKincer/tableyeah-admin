@@ -3,8 +3,6 @@ import { useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
-  Animated,
-  FlatList,
   Modal,
   Platform,
   Pressable,
@@ -16,7 +14,6 @@ import {
   View,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { Swipeable } from 'react-native-gesture-handler'
 import * as Haptics from 'expo-haptics'
 
 import { Neo, NeoBorder, NeoShadow, getStatusColor } from '@/constants/theme'
@@ -35,38 +32,19 @@ import {
 import { useDeviceType } from '@/lib/hooks/useDeviceType'
 import { useTablesWithStatus } from '@/lib/hooks/useTablesWithStatus'
 import { DatePicker } from '@/components/ui/DatePicker'
-import { ContactActionSheet, type ContactInfo, type RowPosition } from '@/components/ui/ContactActionSheet'
 import { FloorPlanCanvas } from '@/components/service/FloorPlanCanvas'
+import { SeatingProgressBar } from '@/components/reservation/SeatingProgressBar'
 import { WalkInSheet, generateWalkInName } from '@/components/service/WalkInSheet'
 import { SeatWaitlistSheet } from '@/components/service/SeatWaitlistSheet'
 import { ServerAssignmentSheet } from '@/components/service/ServerAssignmentSheet'
+import { SelectionActionBar } from '@/components/service/SelectionActionBar'
+import { DragProvider, DraggableRow } from '@/components/dnd'
 import { useServiceStore } from '@/lib/store/service'
 import type { Reservation, ReservationStatus, WaitlistEntry, TableWithStatus } from '@/lib/types'
+import type { DragPayload } from '@/lib/store/drag'
 
-type ViewMode = 'floor' | 'list'
-
-// Turn time status colors
-type TurnTimeStatus = 'green' | 'amber' | 'red'
-
-function getTurnTimeStatus(seatedAt: string, expectedMinutes: number): TurnTimeStatus {
-  const elapsedMinutes = differenceInMinutes(new Date(), parseISO(seatedAt))
-  const percentage = (elapsedMinutes / expectedMinutes) * 100
-
-  if (percentage < 75) return 'green'
-  if (percentage <= 100) return 'amber'
-  return 'red'
-}
-
-function getTurnTimeColor(status: TurnTimeStatus): string {
-  switch (status) {
-    case 'green':
-      return Neo.lime
-    case 'amber':
-      return Neo.yellow
-    case 'red':
-      return Neo.pink
-  }
-}
+type ViewMode = 'floor' | 'list' | 'waitlist'
+type ListPaneTab = 'arrivals' | 'waitlist'
 
 // Group reservations for service view
 interface ReservationSection {
@@ -174,66 +152,15 @@ function WalkInBadge() {
   )
 }
 
-function TurnTimeIndicator({
-  seatedAt,
-  expectedMinutes,
-}: {
-  seatedAt: string
-  expectedMinutes: number
-}) {
-  const [, forceUpdate] = useState(0)
-
-  // Update every 30 seconds
-  useEffect(() => {
-    const interval = setInterval(() => forceUpdate((n) => n + 1), 30000)
-    return () => clearInterval(interval)
-  }, [])
-
-  const elapsedMinutes = differenceInMinutes(new Date(), parseISO(seatedAt))
-  const status = getTurnTimeStatus(seatedAt, expectedMinutes)
-  const color = getTurnTimeColor(status)
-
-  return (
-    <View style={[styles.turnTimeIndicator, { backgroundColor: color }]}>
-      <Text style={styles.turnTimeText}>
-        {elapsedMinutes}m/{expectedMinutes}m
-      </Text>
-    </View>
-  )
-}
-
-interface SwipeAction {
-  label: string
-  color: string
-  textColor?: string
-  onPress: () => void
-}
-
 function CompactReservationRow({
   reservation,
   onPress,
-  onLongPress,
   isSelected,
-  onSeat,
-  onConfirm,
-  onComplete,
-  onCancel,
-  onNoShow,
-  onUnseat,
 }: {
   reservation: Reservation
   onPress: () => void
-  onLongPress: (position: RowPosition) => void
   isSelected?: boolean
-  onSeat: () => void
-  onConfirm: () => void
-  onComplete: () => void
-  onCancel: () => void
-  onNoShow: () => void
-  onUnseat: () => void
 }) {
-  const swipeableRef = useRef<Swipeable>(null)
-  const rowRef = useRef<View>(null)
   const [pressed, setPressed] = useState(false)
   const time = format(new Date(`2000-01-01T${reservation.time}`), 'h:mm a')
   const tables =
@@ -243,196 +170,165 @@ function CompactReservationRow({
 
   const bgColor = getStatusColor(reservation.status)
   const isWalkIn = reservation.is_walk_in === true
-  const status = reservation.status
 
-  const showTurnTime =
-    status === 'SEATED' &&
+  const showProgressBar =
+    reservation.status === 'SEATED' &&
     reservation.seated_at &&
     reservation.expected_turn_time
 
-  // Determine which actions to show based on current status
-  const getLeftAction = (): SwipeAction | null => {
-    if (status === 'BOOKED') {
-      return { label: 'CONFIRM', color: Neo.lime, onPress: onConfirm }
-    }
-    if (status === 'CONFIRMED') {
-      return { label: 'SEAT', color: Neo.cyan, onPress: onSeat }
-    }
-    if (status === 'SEATED') {
-      return { label: 'COMPLETE', color: Neo.lime, onPress: onComplete }
-    }
-    return null
-  }
-
-  const getRightActions = (): SwipeAction[] => {
-    const actions: SwipeAction[] = []
-    if (status === 'BOOKED' || status === 'CONFIRMED') {
-      actions.push({ label: 'NO-SHOW', color: Neo.orange, onPress: onNoShow })
-      actions.push({ label: 'CANCEL', color: Neo.pink, textColor: Neo.white, onPress: onCancel })
-    }
-    if (status === 'SEATED') {
-      actions.push({ label: 'UNSEAT', color: Neo.purple, textColor: Neo.white, onPress: onUnseat })
-      actions.push({ label: 'NO-SHOW', color: Neo.orange, onPress: onNoShow })
-    }
-    return actions
-  }
-
-  const leftAction = getLeftAction()
-  const rightActions = getRightActions()
-
-  const handleAction = (action: SwipeAction) => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
-    swipeableRef.current?.close()
-    action.onPress()
-  }
-
-  const renderLeftActions = (
-    progress: Animated.AnimatedInterpolation<number>,
-    dragX: Animated.AnimatedInterpolation<number>
-  ) => {
-    if (!leftAction) return null
-
-    const scale = dragX.interpolate({
-      inputRange: [0, 80],
-      outputRange: [0.5, 1],
-      extrapolate: 'clamp',
-    })
-
-    return (
-      <Pressable
-        style={[styles.swipeAction, styles.swipeActionLeft, { backgroundColor: leftAction.color }]}
-        onPress={() => handleAction(leftAction)}
-        accessibilityLabel={leftAction.label}
-        accessibilityRole="button"
-      >
-        <Animated.Text
-          style={[
-            styles.swipeActionText,
-            { color: leftAction.textColor || Neo.black, transform: [{ scale }] },
-          ]}
-        >
-          {leftAction.label}
-        </Animated.Text>
-      </Pressable>
-    )
-  }
-
-  const renderRightActions = (
-    progress: Animated.AnimatedInterpolation<number>,
-    dragX: Animated.AnimatedInterpolation<number>
-  ) => {
-    if (rightActions.length === 0) return null
-
-    return (
-      <View style={styles.rightActionsContainer}>
-        {rightActions.map((action, index) => {
-          const scale = dragX.interpolate({
-            inputRange: [-80 * (rightActions.length - index), 0],
-            outputRange: [1, 0.5],
-            extrapolate: 'clamp',
-          })
-
-          return (
-            <Pressable
-              key={action.label}
-              style={[styles.swipeAction, { backgroundColor: action.color }]}
-              onPress={() => handleAction(action)}
-              accessibilityLabel={action.label}
-              accessibilityRole="button"
-            >
-              <Animated.Text
-                style={[
-                  styles.swipeActionText,
-                  { color: action.textColor || Neo.black, transform: [{ scale }] },
-                ]}
-              >
-                {action.label}
-              </Animated.Text>
-            </Pressable>
-          )
-        })}
-      </View>
-    )
-  }
-
-  const hasSwipeActions = leftAction || rightActions.length > 0
-
-  const handleLongPress = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
-    rowRef.current?.measureInWindow((x, y, width, height) => {
-      onLongPress({ y, height })
-    })
-  }
-
-  const rowContent = (
-    <View ref={rowRef} collapsable={false}>
-      <Pressable
-        style={[
-          styles.reservationRow,
-          pressed && styles.reservationRowPressed,
-          isSelected && styles.reservationRowSelected,
-        ]}
-        onPress={onPress}
-        onLongPress={handleLongPress}
-        delayLongPress={400}
-        onPressIn={() => setPressed(true)}
-        onPressOut={() => setPressed(false)}
-        accessibilityLabel={`${reservation.name}, ${time}, ${reservation.covers} guests, ${reservation.status}${isWalkIn ? ', walk-in' : ''}`}
-        accessibilityRole="button"
-        accessibilityState={{ selected: isSelected }}
-      >
-        <View style={styles.reservationRowInner}>
-          <View style={[styles.reservationTime, { backgroundColor: bgColor }]}>
-            <Text style={styles.timeText}>{time}</Text>
-            <Text style={styles.coversText}>
-              {reservation.covers} {reservation.covers === 1 ? 'G' : 'G'}
-            </Text>
-          </View>
-          <View style={styles.reservationDetails}>
-            <View style={styles.nameRow}>
-              <Text style={styles.guestName} numberOfLines={1}>
-                {reservation.name}
-              </Text>
-              {isWalkIn && <WalkInBadge />}
-            </View>
-            <Text style={styles.reservationMeta}>
-              T{tables}
-              {reservation.server && ` · ${reservation.server.name}`}
-            </Text>
-          </View>
-          <View style={styles.statusContainer}>
-            {showTurnTime ? (
-              <TurnTimeIndicator
-                seatedAt={reservation.seated_at!}
-                expectedMinutes={reservation.expected_turn_time!}
-              />
-            ) : (
-              <StatusBadge status={reservation.status} />
-            )}
-          </View>
+  return (
+    <Pressable
+      style={[
+        styles.reservationRow,
+        pressed && styles.reservationRowPressed,
+        isSelected && styles.reservationRowSelected,
+      ]}
+      onPress={onPress}
+      onPressIn={() => setPressed(true)}
+      onPressOut={() => setPressed(false)}
+      accessibilityLabel={`${reservation.name}, ${time}, ${reservation.covers} guests, ${reservation.status}${isWalkIn ? ', walk-in' : ''}`}
+      accessibilityRole="button"
+      accessibilityState={{ selected: isSelected }}
+    >
+      <View style={styles.reservationRowInner}>
+        <View style={[styles.reservationTime, { backgroundColor: bgColor }]}>
+          <Text style={styles.timeText}>{time}</Text>
+          <Text style={styles.coversText}>
+            {reservation.covers} {reservation.covers === 1 ? 'G' : 'G'}
+          </Text>
         </View>
-      </Pressable>
-    </View>
+        <View style={styles.reservationDetails}>
+          <View style={styles.nameRow}>
+            <Text style={styles.guestName} numberOfLines={1}>
+              {reservation.name}
+            </Text>
+            {isWalkIn && <WalkInBadge />}
+          </View>
+          <Text style={styles.reservationMeta}>
+            T{tables}
+            {reservation.server && ` · ${reservation.server.name}`}
+          </Text>
+        </View>
+        <View style={styles.statusContainer}>
+          <StatusBadge status={reservation.status} />
+        </View>
+      </View>
+      {showProgressBar && (
+        <SeatingProgressBar
+          seatedAt={reservation.seated_at!}
+          expectedMinutes={reservation.expected_turn_time!}
+        />
+      )}
+    </Pressable>
   )
+}
 
-  if (!hasSwipeActions) {
-    return rowContent
-  }
+function WaitlistRow({
+  entry,
+  onPress,
+  isSelected,
+}: {
+  entry: WaitlistEntry
+  onPress: () => void
+  isSelected?: boolean
+}) {
+  const [pressed, setPressed] = useState(false)
+  const waitTime = differenceInMinutes(new Date(), parseISO(entry.created_at))
+  const waitTimeDisplay = waitTime < 60 ? `${waitTime}m` : `${Math.floor(waitTime / 60)}h ${waitTime % 60}m`
 
   return (
-    <Swipeable
-      ref={swipeableRef}
-      renderLeftActions={leftAction ? renderLeftActions : undefined}
-      renderRightActions={rightActions.length > 0 ? renderRightActions : undefined}
-      leftThreshold={80}
-      rightThreshold={80}
-      friction={2}
-      overshootLeft={false}
-      overshootRight={false}
-      onSwipeableOpen={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)}
+    <Pressable
+      style={[
+        styles.waitlistRowItem,
+        pressed && styles.waitlistRowItemPressed,
+        isSelected && styles.waitlistRowItemSelected,
+      ]}
+      onPress={onPress}
+      onPressIn={() => setPressed(true)}
+      onPressOut={() => setPressed(false)}
     >
-      {rowContent}
-    </Swipeable>
+      <View style={styles.waitlistRowLeft}>
+        <View style={styles.waitlistRowCovers}>
+          <Text style={styles.waitlistRowCoversText}>{entry.covers}</Text>
+        </View>
+      </View>
+      <View style={styles.waitlistRowInfo}>
+        <Text style={styles.waitlistRowName} numberOfLines={1}>{entry.name}</Text>
+        <Text style={styles.waitlistRowMeta}>
+          {entry.time ? format(new Date(`2000-01-01T${entry.time}`), 'h:mm a') : 'Any time'}
+          {entry.notes && ` · ${entry.notes}`}
+        </Text>
+      </View>
+      <View style={styles.waitlistRowRight}>
+        <View style={[
+          styles.waitlistRowWaitBadge,
+          entry.status === 'NOTIFIED' && styles.waitlistRowWaitBadgeNotified,
+        ]}>
+          <Text style={styles.waitlistRowWaitText}>{waitTimeDisplay}</Text>
+        </View>
+        {entry.status === 'NOTIFIED' && (
+          <Text style={styles.waitlistRowNotifiedLabel}>NOTIFIED</Text>
+        )}
+      </View>
+    </Pressable>
+  )
+}
+
+function ListPaneTabs({
+  activeTab,
+  waitlistCount,
+  onTabChange,
+}: {
+  activeTab: ListPaneTab
+  waitlistCount: number
+  onTabChange: (tab: ListPaneTab) => void
+}) {
+  return (
+    <View style={styles.listPaneTabs}>
+      <Pressable
+        style={[
+          styles.listPaneTab,
+          activeTab === 'arrivals' && styles.listPaneTabActive,
+        ]}
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+          onTabChange('arrivals')
+        }}
+      >
+        <Text
+          style={[
+            styles.listPaneTabText,
+            activeTab === 'arrivals' && styles.listPaneTabTextActive,
+          ]}
+        >
+          ARRIVALS
+        </Text>
+      </Pressable>
+      <Pressable
+        style={[
+          styles.listPaneTab,
+          activeTab === 'waitlist' && styles.listPaneTabActive,
+        ]}
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+          onTabChange('waitlist')
+        }}
+      >
+        <Text
+          style={[
+            styles.listPaneTabText,
+            activeTab === 'waitlist' && styles.listPaneTabTextActive,
+          ]}
+        >
+          WAITLIST
+        </Text>
+        {waitlistCount > 0 && (
+          <View style={styles.listPaneTabBadge}>
+            <Text style={styles.listPaneTabBadgeText}>{waitlistCount}</Text>
+          </View>
+        )}
+      </Pressable>
+    </View>
   )
 }
 
@@ -441,26 +337,26 @@ function ServiceHeader({
   isLive,
   waitlistCount,
   viewMode,
-  showViewToggle,
+  isTablet,
+  useSplitLayout,
   onDateChange,
   onOpenPicker,
   onToggleLive,
   onWalkIn,
   onViewModeChange,
-  onWaitlistPress,
   onServerAssignmentsPress,
 }: {
   date: Date
   isLive: boolean
   waitlistCount: number
   viewMode: ViewMode
-  showViewToggle: boolean
+  isTablet: boolean
+  useSplitLayout: boolean
   onDateChange: (date: Date) => void
   onOpenPicker: () => void
   onToggleLive: () => void
   onWalkIn: () => void
   onViewModeChange: (mode: ViewMode) => void
-  onWaitlistPress: () => void
   onServerAssignmentsPress: () => void
 }) {
   const [currentTime, setCurrentTime] = useState(new Date())
@@ -480,6 +376,127 @@ function ServiceHeader({
 
   const dateLabel = isToday(date) ? 'TODAY' : format(date, 'EEE, MMM d').toUpperCase()
 
+  // Phone layout - more compact, two rows
+  if (!isTablet) {
+    return (
+      <View style={styles.header}>
+        {/* Row 1: Date + Live indicator */}
+        <View style={styles.headerTopPhone}>
+          <View style={styles.dateSelectorPhone}>
+            <Pressable
+              style={[styles.dateButtonSmall, prevPressed && styles.dateButtonPressed]}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+                onDateChange(subDays(date, 1))
+              }}
+              onPressIn={() => setPrevPressed(true)}
+              onPressOut={() => setPrevPressed(false)}
+            >
+              <Text style={styles.dateButtonText}>{'<'}</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.dateDisplayCompact, datePressed && styles.dateDisplayPressed]}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+                onOpenPicker()
+              }}
+              onPressIn={() => setDatePressed(true)}
+              onPressOut={() => setDatePressed(false)}
+            >
+              <Text style={styles.dateText}>{dateLabel}</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.dateButtonSmall, nextPressed && styles.dateButtonPressed]}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+                onDateChange(addDays(date, 1))
+              }}
+              onPressIn={() => setNextPressed(true)}
+              onPressOut={() => setNextPressed(false)}
+            >
+              <Text style={styles.dateButtonText}>{'>'}</Text>
+            </Pressable>
+          </View>
+
+          <Pressable
+            style={[styles.liveButtonCompact, isLive && styles.liveButtonActive, livePressed && styles.buttonPressed]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+              onToggleLive()
+            }}
+            onPressIn={() => setLivePressed(true)}
+            onPressOut={() => setLivePressed(false)}
+          >
+            {isLive && <View style={styles.liveDot} />}
+            <Text style={[styles.liveTextCompact, isLive && styles.liveTextActive]}>
+              {isLive ? format(currentTime, 'h:mm a') : 'LIVE'}
+            </Text>
+          </Pressable>
+        </View>
+
+        {/* Row 2: View toggle + action buttons */}
+        <View style={styles.headerBottomPhone}>
+          <View style={styles.viewToggle}>
+            <Pressable
+              style={[
+                styles.viewToggleButton,
+                viewMode === 'list' && styles.viewToggleButtonActive,
+              ]}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+                onViewModeChange('list')
+              }}
+            >
+              <Text
+                style={[
+                  styles.viewToggleText,
+                  viewMode === 'list' && styles.viewToggleTextActive,
+                ]}
+              >
+                ARRIVALS
+              </Text>
+            </Pressable>
+            <Pressable
+              style={[
+                styles.viewToggleButton,
+                viewMode === 'waitlist' && styles.viewToggleButtonActive,
+                waitlistCount > 0 && viewMode !== 'waitlist' && styles.viewToggleButtonBadge,
+              ]}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+                onViewModeChange('waitlist')
+              }}
+            >
+              <Text
+                style={[
+                  styles.viewToggleText,
+                  viewMode === 'waitlist' && styles.viewToggleTextActive,
+                ]}
+              >
+                WAIT{waitlistCount > 0 ? ` (${waitlistCount})` : ''}
+              </Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.headerActionsPhone}>
+            <Pressable
+              style={[styles.walkInButtonCompact, walkInPressed && styles.buttonPressed]}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+                onWalkIn()
+              }}
+              onPressIn={() => setWalkInPressed(true)}
+              onPressOut={() => setWalkInPressed(false)}
+            >
+              <Text style={styles.walkInButtonText}>+ WALK-IN</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    )
+  }
+
+  // Tablet layout - original design
   return (
     <View style={styles.header}>
       <View style={styles.headerTop}>
@@ -499,62 +516,47 @@ function ServiceHeader({
           </Text>
         </Pressable>
 
-        {/* View mode toggle (iPad only) */}
-        {showViewToggle && (
-          <View style={styles.viewToggle}>
-            <Pressable
-              style={[
-                styles.viewToggleButton,
-                viewMode === 'floor' && styles.viewToggleButtonActive,
-              ]}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-                onViewModeChange('floor')
-              }}
-            >
-              <Text
-                style={[
-                  styles.viewToggleText,
-                  viewMode === 'floor' && styles.viewToggleTextActive,
-                ]}
-              >
-                FLOOR
-              </Text>
-            </Pressable>
-            <Pressable
-              style={[
-                styles.viewToggleButton,
-                viewMode === 'list' && styles.viewToggleButtonActive,
-              ]}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-                onViewModeChange('list')
-              }}
-            >
-              <Text
-                style={[
-                  styles.viewToggleText,
-                  viewMode === 'list' && styles.viewToggleTextActive,
-                ]}
-              >
-                LIST
-              </Text>
-            </Pressable>
-          </View>
-        )}
-
-        {/* Waitlist badge */}
-        {waitlistCount > 0 && (
+        {/* View mode toggle - Tablet: FLOOR/LIST */}
+        <View style={styles.viewToggle}>
           <Pressable
-            style={styles.waitlistBadge}
+            style={[
+              styles.viewToggleButton,
+              viewMode === 'floor' && styles.viewToggleButtonActive,
+            ]}
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-              onWaitlistPress()
+              onViewModeChange('floor')
             }}
           >
-            <Text style={styles.waitlistBadgeText}>{waitlistCount} WAITING</Text>
+            <Text
+              style={[
+                styles.viewToggleText,
+                viewMode === 'floor' && styles.viewToggleTextActive,
+              ]}
+            >
+              FLOOR
+            </Text>
           </Pressable>
-        )}
+          <Pressable
+            style={[
+              styles.viewToggleButton,
+              viewMode === 'list' && styles.viewToggleButtonActive,
+            ]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+              onViewModeChange('list')
+            }}
+          >
+            <Text
+              style={[
+                styles.viewToggleText,
+                viewMode === 'list' && styles.viewToggleTextActive,
+              ]}
+            >
+              LIST
+            </Text>
+          </Pressable>
+        </View>
 
         {/* Servers button */}
         <Pressable
@@ -635,13 +637,12 @@ export default function ServiceScreen() {
   const router = useRouter()
   const { isTablet, isLandscape } = useDeviceType()
   const [showDatePicker, setShowDatePicker] = useState(false)
-  const [actionSheetContact, setActionSheetContact] = useState<ContactInfo | null>(null)
-  const [actionSheetPosition, setActionSheetPosition] = useState<RowPosition | null>(null)
-  const [viewMode, setViewMode] = useState<ViewMode>('floor')
+  // Phones default to 'list', tablets to 'floor'
+  const [viewMode, setViewMode] = useState<ViewMode>(isTablet ? 'floor' : 'list')
   const [showWalkInSheet, setShowWalkInSheet] = useState(false)
   const [walkInTableId, setWalkInTableId] = useState<number | undefined>(undefined)
   const [walkInTableNumber, setWalkInTableNumber] = useState<string | undefined>(undefined)
-  const [showWaitlistPanel, setShowWaitlistPanel] = useState(false)
+  const [listPaneTab, setListPaneTab] = useState<ListPaneTab>('arrivals')
   const [selectedWaitlistEntry, setSelectedWaitlistEntry] = useState<WaitlistEntry | null>(null)
   const [showServerAssignments, setShowServerAssignments] = useState(false)
   // Server painting mode state
@@ -663,8 +664,10 @@ export default function ServiceScreen() {
     exitWalkInMode,
     setWalkInPartySize,
     selectReservation,
+    selectWaitlist,
     selectTable,
-    selectedReservationId,
+    selectedReservationUuid,
+    selectedWaitlistUuid,
     selectedTableId,
     clearSelection,
   } = useServiceStore()
@@ -701,12 +704,22 @@ export default function ServiceScreen() {
     setRefreshing(false)
   }, [refetch, refetchTables])
 
-  // Auto-refresh in live mode
+  // Set correct initial viewMode based on device type
+  useEffect(() => {
+    if (!isTablet && viewMode === 'floor') {
+      setViewMode('list')
+    }
+  }, [isTablet, viewMode])
+
+  // Auto-refresh in live mode - refresh both list and floor plan data
   useEffect(() => {
     if (!isLiveMode) return
-    const interval = setInterval(() => refetch(), 30000)
+    const interval = setInterval(() => {
+      refetch()
+      refetchTables()
+    }, 30000)
     return () => clearInterval(interval)
-  }, [isLiveMode, refetch])
+  }, [isLiveMode, refetch, refetchTables])
 
   // Reset to today when entering live mode
   const handleToggleLive = () => {
@@ -734,8 +747,40 @@ export default function ServiceScreen() {
     [reservations]
   )
 
-  const handlePress = (reservation: Reservation) => {
+  // Get selected reservation object for action bar
+  const selectedReservation = useMemo(
+    () => selectedReservationUuid
+      ? reservations.find(r => r.uuid === selectedReservationUuid) || null
+      : null,
+    [selectedReservationUuid, reservations]
+  )
+
+  // Get selected waitlist entry for action bar (already in selectedWaitlistEntry state)
+  const selectedWaitlistForActionBar = useMemo(
+    () => selectedWaitlistUuid
+      ? activeWaitlistEntries.find(e => e.uuid === selectedWaitlistUuid) || null
+      : null,
+    [selectedWaitlistUuid, activeWaitlistEntries]
+  )
+
+  // Handle reservation row press
+  const handleReservationPress = (reservation: Reservation) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+    if (isTablet) {
+      // On tablet, toggle selection for action bar
+      if (selectedReservationUuid === reservation.uuid) {
+        selectReservation(null)
+      } else {
+        selectReservation(reservation.uuid)
+      }
+    } else {
+      // On phone, navigate to detail page (like Reservations tab)
+      router.push(`/reservation/${reservation.id}`)
+    }
+  }
+
+  // Navigate to detail view (for action bar view button on tablet)
+  const handleReservationNavigate = (reservation: Reservation) => {
     router.push(`/reservation/${reservation.id}`)
   }
 
@@ -790,12 +835,22 @@ export default function ServiceScreen() {
     }
   }
 
+  // Handle waitlist row press
   const handleWaitlistPress = (entry: WaitlistEntry) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-    setSelectedWaitlistEntry(entry)
-    setShowWaitlistPanel(false)
-    // If on floor plan view, we'll use the floor plan to seat them
-    // Otherwise, the SeatWaitlistSheet will be shown
+    if (isTablet) {
+      // On tablet, toggle selection for action bar
+      if (selectedWaitlistUuid === entry.uuid) {
+        selectWaitlist(null)
+        setSelectedWaitlistEntry(null)
+      } else {
+        selectWaitlist(entry.uuid)
+        setSelectedWaitlistEntry(entry)
+      }
+    } else {
+      // On phone, show seat waitlist sheet directly (triggers SeatWaitlistSheet)
+      setSelectedWaitlistEntry(entry)
+    }
   }
 
   // Handle seating waitlist entry at a specific table from floor plan
@@ -818,6 +873,142 @@ export default function ServiceScreen() {
   // Cancel waitlist seating mode
   const handleCancelWaitlistSeating = () => {
     setSelectedWaitlistEntry(null)
+    selectWaitlist(null)
+  }
+
+  // Action bar handlers for reservations
+  const handleConfirmFromActionBar = async () => {
+    if (!selectedReservation) return
+    try {
+      await confirmMutation.mutateAsync(selectedReservation.id)
+      clearSelection()
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+    } catch {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
+    }
+  }
+
+  const handleSeatFromActionBar = async () => {
+    if (!selectedReservation) return
+    // For phone, we might want to show a table picker
+    // For now, just seat at the assigned table
+    try {
+      await seatMutation.mutateAsync(selectedReservation.id)
+      clearSelection()
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+    } catch {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
+    }
+  }
+
+  const handleCompleteFromActionBar = async () => {
+    if (!selectedReservation) return
+    try {
+      await completeMutation.mutateAsync(selectedReservation.id)
+      clearSelection()
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+    } catch {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
+    }
+  }
+
+  const handleCancelFromActionBar = async () => {
+    if (!selectedReservation) return
+    try {
+      await cancelMutation.mutateAsync(selectedReservation.id)
+      clearSelection()
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+    } catch {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
+    }
+  }
+
+  const handleNoShowFromActionBar = async () => {
+    if (!selectedReservation) return
+    try {
+      await noShowMutation.mutateAsync(selectedReservation.id)
+      clearSelection()
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+    } catch {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
+    }
+  }
+
+  const handleUnseatFromActionBar = async () => {
+    if (!selectedReservation) return
+    try {
+      await unseatMutation.mutateAsync(selectedReservation.id)
+      clearSelection()
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+    } catch {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
+    }
+  }
+
+  // Action bar handlers for waitlist
+  const handleSeatWaitlistFromActionBar = () => {
+    if (!selectedWaitlistForActionBar) return
+    // For tablet in split layout, this will trigger floor plan seat-waitlist mode
+    // For phone, show the SeatWaitlistSheet
+    setSelectedWaitlistEntry(selectedWaitlistForActionBar)
+    // The sheet visibility is controlled by selectedWaitlistEntry !== null && !isTablet
+    // For tablet, the floor plan will enter seat-waitlist mode
+  }
+
+  const handleNotifyWaitlistFromActionBar = async () => {
+    // TODO: Implement notify waitlist mutation
+    if (!selectedWaitlistForActionBar) return
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+    // For now just clear selection
+    clearSelection()
+    setSelectedWaitlistEntry(null)
+  }
+
+  const handleRemoveWaitlistFromActionBar = async () => {
+    // TODO: Implement delete waitlist mutation
+    if (!selectedWaitlistForActionBar) return
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+    // For now just clear selection
+    clearSelection()
+    setSelectedWaitlistEntry(null)
+  }
+
+  const handleCloseActionBar = () => {
+    clearSelection()
+    setSelectedWaitlistEntry(null)
+  }
+
+  // Handle drag-and-drop onto a table
+  const handleDrop = async (tableId: number, payload: DragPayload) => {
+    try {
+      switch (payload.type) {
+        case 'reservation':
+          // Seat the reservation at the dropped table
+          await seatMutation.mutateAsync(payload.reservation.id)
+          break
+
+        case 'waitlist':
+          // Seat the waitlist entry at the dropped table
+          await seatWaitlistMutation.mutateAsync({
+            uuid: payload.entry.uuid,
+            tableId,
+            date: dateString,
+            time: format(new Date(), 'HH:mm'),
+          })
+          break
+
+        case 'walk-in':
+          // Open walk-in sheet with the table pre-selected
+          const table = tablesWithStatus.find(t => t.id === tableId)
+          handleWalkIn(tableId, table?.table_number)
+          return // Don't clear selection, the sheet will handle it
+      }
+
+      clearSelection()
+      setSelectedWaitlistEntry(null)
+    } catch (error) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
+    }
   }
 
   const handleSaveServerAssignments = async (
@@ -937,9 +1128,12 @@ export default function ServiceScreen() {
     }
 
     selectTable(table.id)
-    // If table has a seated reservation, also select it
+    // If table has a seated reservation, find it and select by uuid
     if (table.currentReservation) {
-      selectReservation(table.currentReservation.id)
+      const reservation = reservations.find(r => r.id === table.currentReservation!.id)
+      if (reservation) {
+        selectReservation(reservation.uuid)
+      }
     }
   }
 
@@ -982,27 +1176,24 @@ export default function ServiceScreen() {
         <SectionList
           sections={sections}
           keyExtractor={(item) => item.uuid}
-          renderItem={({ item }) => (
-            <CompactReservationRow
-              reservation={item}
-              onPress={() => handlePress(item)}
-              onLongPress={(position) => {
-                setActionSheetContact({
-                  name: item.name,
-                  phone: item.phone,
-                  email: item.email,
-                })
-                setActionSheetPosition(position)
-              }}
-              isSelected={selectedReservationId === item.id}
-              onSeat={() => seatMutation.mutate(item.id)}
-              onConfirm={() => confirmMutation.mutate(item.id)}
-              onComplete={() => completeMutation.mutate(item.id)}
-              onCancel={() => cancelMutation.mutate(item.id)}
-              onNoShow={() => noShowMutation.mutate(item.id)}
-              onUnseat={() => unseatMutation.mutate(item.id)}
-            />
-          )}
+          renderItem={({ item }) => {
+            // Only allow dragging for reservations that can be seated
+            const canDrag = ['BOOKED', 'CONFIRMED'].includes(item.status)
+            const payload: DragPayload = { type: 'reservation', reservation: item }
+
+            return (
+              <DraggableRow
+                payload={payload}
+                enabled={canDrag}
+              >
+                <CompactReservationRow
+                  reservation={item}
+                  onPress={() => handleReservationPress(item)}
+                  isSelected={selectedReservationUuid === item.uuid}
+                />
+              </DraggableRow>
+            )
+          }}
           renderSectionHeader={({ section }) => (
             <SectionHeader title={section.title} color={section.color} />
           )}
@@ -1017,19 +1208,20 @@ export default function ServiceScreen() {
   )
 
   return (
-    <SafeAreaView style={styles.container} edges={['left', 'right']}>
-      <ServiceHeader
+    <DragProvider onDrop={handleDrop} enabled={useSplitLayout}>
+      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+        <ServiceHeader
         date={selectedDate}
         isLive={isLiveMode}
         waitlistCount={waitlistCount}
         viewMode={viewMode}
-        showViewToggle={showViewToggle}
+        isTablet={isTablet}
+        useSplitLayout={useSplitLayout}
         onDateChange={handleDateChange}
         onOpenPicker={() => setShowDatePicker(true)}
         onToggleLive={handleToggleLive}
         onWalkIn={() => handleWalkIn()}
         onViewModeChange={setViewMode}
-        onWaitlistPress={() => setShowWaitlistPanel(true)}
         onServerAssignmentsPress={handleServerButtonPress}
       />
 
@@ -1064,7 +1256,47 @@ export default function ServiceScreen() {
             />
           </View>
           <View style={styles.listPane}>
-            {listContent}
+            <ListPaneTabs
+              activeTab={listPaneTab}
+              waitlistCount={waitlistCount}
+              onTabChange={setListPaneTab}
+            />
+            {listPaneTab === 'arrivals' ? (
+              listContent
+            ) : (
+              <ScrollView
+                contentContainerStyle={styles.waitlistListContent}
+                refreshControl={
+                  <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Neo.black} />
+                }
+              >
+                {activeWaitlistEntries.length === 0 ? (
+                  <View style={styles.waitlistEmptyState}>
+                    <Text style={styles.waitlistEmptyTitle}>NO ONE WAITING</Text>
+                    <Text style={styles.waitlistEmptySubtext}>Waitlist is empty</Text>
+                  </View>
+                ) : (
+                  activeWaitlistEntries.map((entry) => {
+                    const payload: DragPayload = { type: 'waitlist', entry }
+                    const canDrag = ['WAITING', 'NOTIFIED'].includes(entry.status)
+
+                    return (
+                      <DraggableRow
+                        key={entry.uuid}
+                        payload={payload}
+                        enabled={canDrag}
+                      >
+                        <WaitlistRow
+                          entry={entry}
+                          onPress={() => handleWaitlistPress(entry)}
+                          isSelected={selectedWaitlistUuid === entry.uuid}
+                        />
+                      </DraggableRow>
+                    )
+                  })
+                )}
+              </ScrollView>
+            )}
           </View>
         </View>
       ) : showFloorPlan ? (
@@ -1094,6 +1326,33 @@ export default function ServiceScreen() {
           waitlistEntry={selectedWaitlistEntry}
           onSeatWaitlistAtTable={handleSeatWaitlistAtTableFromFloorPlan}
         />
+      ) : viewMode === 'waitlist' ? (
+        /* Phone waitlist view */
+        <ScrollView
+          contentContainerStyle={styles.waitlistListContent}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Neo.black} />
+          }
+        >
+          {activeWaitlistEntries.length === 0 ? (
+            <View style={styles.waitlistEmptyState}>
+              <Text style={styles.waitlistEmptyTitle}>NO ONE WAITING</Text>
+              <Text style={styles.waitlistEmptySubtext}>Waitlist is empty</Text>
+            </View>
+          ) : (
+            activeWaitlistEntries.map((entry) => (
+              <WaitlistRow
+                key={entry.uuid}
+                entry={entry}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+                  setSelectedWaitlistEntry(entry)
+                }}
+                isSelected={selectedWaitlistEntry?.uuid === entry.uuid}
+              />
+            ))
+          )}
+        </ScrollView>
       ) : (
         listContent
       )}
@@ -1104,17 +1363,6 @@ export default function ServiceScreen() {
         selectedDate={selectedDate}
         onSelectDate={handleDateChange}
         onClose={() => setShowDatePicker(false)}
-      />
-
-      {/* Long-press Action Sheet */}
-      <ContactActionSheet
-        visible={actionSheetContact !== null}
-        contact={actionSheetContact}
-        rowPosition={actionSheetPosition}
-        onClose={() => {
-          setActionSheetContact(null)
-          setActionSheetPosition(null)
-        }}
       />
 
       {/* Walk-in Sheet */}
@@ -1133,60 +1381,9 @@ export default function ServiceScreen() {
         isLoading={createWalkInMutation.isPending}
       />
 
-      {/* Waitlist Panel */}
-      <Modal
-        visible={showWaitlistPanel}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setShowWaitlistPanel(false)}
-      >
-        <Pressable style={styles.overlay} onPress={() => setShowWaitlistPanel(false)}>
-          <Pressable style={styles.waitlistPanel} onPress={(e) => e.stopPropagation()}>
-            <View style={styles.waitlistHeader}>
-              <Text style={styles.waitlistTitle}>WAITLIST</Text>
-              <Pressable
-                style={styles.waitlistCloseButton}
-                onPress={() => setShowWaitlistPanel(false)}
-              >
-                <Text style={styles.waitlistCloseButtonText}>×</Text>
-              </Pressable>
-            </View>
-            <ScrollView style={styles.waitlistList}>
-              {activeWaitlistEntries.map((entry) => (
-                <Pressable
-                  key={entry.uuid}
-                  style={styles.waitlistRow}
-                  onPress={() => handleWaitlistPress(entry)}
-                >
-                  <View style={styles.waitlistRowInfo}>
-                    <Text style={styles.waitlistRowName}>{entry.name}</Text>
-                    <Text style={styles.waitlistRowMeta}>
-                      {entry.covers} guests · {entry.time || 'Any time'}
-                    </Text>
-                  </View>
-                  <View style={[
-                    styles.waitlistStatusBadge,
-                    entry.status === 'NOTIFIED' && styles.waitlistStatusNotified,
-                  ]}>
-                    <Text style={styles.waitlistStatusText}>
-                      {entry.status === 'NOTIFIED' ? 'NOTIFIED' : 'WAITING'}
-                    </Text>
-                  </View>
-                </Pressable>
-              ))}
-              {activeWaitlistEntries.length === 0 && (
-                <View style={styles.waitlistEmpty}>
-                  <Text style={styles.waitlistEmptyText}>No one waiting</Text>
-                </View>
-              )}
-            </ScrollView>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      {/* Seat Waitlist Sheet - only show when not on floor plan view */}
+      {/* Seat Waitlist Sheet - show for phone when waitlist entry is selected */}
       <SeatWaitlistSheet
-        visible={selectedWaitlistEntry !== null && !showFloorPlan}
+        visible={selectedWaitlistEntry !== null && !isTablet}
         entry={selectedWaitlistEntry}
         tables={tablesWithStatus}
         onClose={() => setSelectedWaitlistEntry(null)}
@@ -1204,7 +1401,34 @@ export default function ServiceScreen() {
         onSave={handleSaveServerAssignments}
         isLoading={setServerAssignmentsMutation.isPending}
       />
-    </SafeAreaView>
+
+      {/* Selection Action Bar */}
+      <SelectionActionBar
+        selectedReservation={selectedReservation}
+        onConfirmReservation={handleConfirmFromActionBar}
+        onSeatReservation={handleSeatFromActionBar}
+        onCompleteReservation={handleCompleteFromActionBar}
+        onCancelReservation={handleCancelFromActionBar}
+        onNoShowReservation={handleNoShowFromActionBar}
+        onUnseatReservation={handleUnseatFromActionBar}
+        onViewReservationDetails={selectedReservation ? () => handleReservationNavigate(selectedReservation) : undefined}
+        selectedWaitlist={selectedWaitlistForActionBar}
+        onSeatWaitlist={handleSeatWaitlistFromActionBar}
+        onNotifyWaitlist={handleNotifyWaitlistFromActionBar}
+        onRemoveWaitlist={handleRemoveWaitlistFromActionBar}
+        onClose={handleCloseActionBar}
+        isLoading={
+          confirmMutation.isPending ||
+          seatMutation.isPending ||
+          completeMutation.isPending ||
+          cancelMutation.isPending ||
+          noShowMutation.isPending ||
+          unseatMutation.isPending ||
+          seatWaitlistMutation.isPending
+        }
+      />
+      </SafeAreaView>
+    </DragProvider>
   )
 }
 
@@ -1239,6 +1463,27 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     gap: 12,
   },
+  // Phone header styles
+  headerTopPhone: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 8,
+  },
+  headerBottomPhone: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingBottom: 10,
+    gap: 8,
+  },
+  headerActionsPhone: {
+    flexDirection: 'row',
+    gap: 8,
+  },
   liveButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1272,6 +1517,52 @@ const styles = StyleSheet.create({
   },
   liveTextActive: {
     color: Neo.black,
+  },
+  // Compact phone variants
+  liveButtonCompact: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Neo.white,
+    borderWidth: NeoBorder.thin,
+    borderColor: Neo.black,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    gap: 6,
+    ...NeoShadow.sm,
+  },
+  liveTextCompact: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: Neo.black,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  dateButtonSmall: {
+    width: 36,
+    height: 36,
+    backgroundColor: Neo.white,
+    borderWidth: NeoBorder.thin,
+    borderColor: Neo.black,
+    justifyContent: 'center',
+    alignItems: 'center',
+    ...NeoShadow.sm,
+  },
+  dateDisplayCompact: {
+    flex: 1,
+    alignItems: 'center',
+    backgroundColor: Neo.yellow,
+    borderWidth: NeoBorder.thin,
+    borderColor: Neo.black,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    ...NeoShadow.sm,
+  },
+  walkInButtonCompact: {
+    backgroundColor: Neo.lime,
+    borderWidth: NeoBorder.thin,
+    borderColor: Neo.black,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    ...NeoShadow.sm,
   },
   viewToggle: {
     flexDirection: 'row',
@@ -1349,6 +1640,12 @@ const styles = StyleSheet.create({
     gap: 12,
     borderTopWidth: NeoBorder.thin,
     borderTopColor: Neo.black + '30',
+  },
+  dateSelectorPhone: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: 6,
   },
   dateButton: {
     width: 44,
@@ -1506,39 +1803,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
-  turnTimeIndicator: {
-    borderWidth: 1,
-    borderColor: Neo.black,
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-  },
-  turnTimeText: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: Neo.black,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    letterSpacing: 0.5,
-  },
-  swipeAction: {
-    width: 72,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: Neo.black,
-  },
-  swipeActionLeft: {
-    borderRightWidth: 0,
-  },
-  swipeActionText: {
-    fontSize: 9,
-    fontWeight: '900',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-  },
-  rightActionsContainer: {
-    flexDirection: 'row',
-  },
   centered: {
     flex: 1,
     justifyContent: 'center',
@@ -1643,23 +1907,6 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     ...NeoShadow.sm,
   },
-  waitlistRowInfo: {
-    flex: 1,
-  },
-  waitlistRowName: {
-    fontSize: 14,
-    fontWeight: '900',
-    color: Neo.black,
-    textTransform: 'uppercase',
-    letterSpacing: -0.5,
-  },
-  waitlistRowMeta: {
-    fontSize: 10,
-    color: Neo.black,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    marginTop: 2,
-    opacity: 0.7,
-  },
   waitlistStatusBadge: {
     backgroundColor: Neo.purple,
     borderWidth: 1,
@@ -1687,5 +1934,160 @@ const styles = StyleSheet.create({
     color: Neo.black,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     opacity: 0.6,
+  },
+  // List pane tabs for tablet split layout
+  listPaneTabs: {
+    flexDirection: 'row',
+    borderBottomWidth: NeoBorder.thin,
+    borderBottomColor: Neo.black,
+    backgroundColor: Neo.white,
+  },
+  listPaneTab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    gap: 6,
+  },
+  listPaneTabActive: {
+    backgroundColor: Neo.black,
+  },
+  listPaneTabText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: Neo.black,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    letterSpacing: 0.5,
+  },
+  listPaneTabTextActive: {
+    color: Neo.white,
+  },
+  listPaneTabBadge: {
+    backgroundColor: Neo.purple,
+    borderWidth: 1,
+    borderColor: Neo.black,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  listPaneTabBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: Neo.white,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  // Waitlist row styles for sidebar
+  waitlistRowItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Neo.white,
+    borderWidth: NeoBorder.thin,
+    borderColor: Neo.black,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    overflow: 'hidden',
+    ...NeoShadow.sm,
+  },
+  waitlistRowItemPressed: {
+    ...NeoShadow.pressed,
+    transform: [{ translateX: 2 }, { translateY: 2 }],
+  },
+  waitlistRowItemSelected: {
+    borderColor: Neo.purple,
+    borderWidth: NeoBorder.default,
+    backgroundColor: Neo.purple + '20',
+  },
+  waitlistRowLeft: {
+    width: 56,
+    height: 56,
+    backgroundColor: Neo.purple,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRightWidth: NeoBorder.thin,
+    borderRightColor: Neo.black,
+  },
+  waitlistRowCovers: {
+    alignItems: 'center',
+  },
+  waitlistRowCoversText: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: Neo.white,
+  },
+  waitlistRowInfo: {
+    flex: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  waitlistRowName: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: Neo.black,
+    textTransform: 'uppercase',
+    letterSpacing: -0.5,
+  },
+  waitlistRowMeta: {
+    fontSize: 10,
+    color: Neo.black,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    marginTop: 2,
+    opacity: 0.7,
+  },
+  waitlistRowRight: {
+    paddingRight: 12,
+    alignItems: 'flex-end',
+  },
+  waitlistRowWaitBadge: {
+    backgroundColor: Neo.purple,
+    borderWidth: 1,
+    borderColor: Neo.black,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  waitlistRowWaitBadgeNotified: {
+    backgroundColor: Neo.orange,
+  },
+  waitlistRowWaitText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: Neo.white,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    letterSpacing: 0.5,
+  },
+  waitlistRowNotifiedLabel: {
+    fontSize: 8,
+    fontWeight: '700',
+    color: Neo.orange,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    letterSpacing: 0.5,
+    marginTop: 4,
+  },
+  waitlistListContent: {
+    paddingVertical: 16,
+  },
+  waitlistEmptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 40,
+  },
+  waitlistEmptyTitle: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: Neo.black,
+    textTransform: 'uppercase',
+    letterSpacing: -0.5,
+    marginBottom: 8,
+  },
+  waitlistEmptySubtext: {
+    fontSize: 11,
+    color: Neo.black,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    opacity: 0.6,
+  },
+  viewToggleButtonBadge: {
+    borderLeftWidth: 2,
+    borderLeftColor: Neo.purple,
   },
 })

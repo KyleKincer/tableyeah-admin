@@ -12,6 +12,8 @@ import * as Haptics from 'expo-haptics'
 import { differenceInMinutes, parseISO } from 'date-fns'
 
 import { Neo, NeoBorder, NeoShadow } from '@/constants/theme'
+import { DropTarget } from '@/components/dnd'
+import { NeoDotsBackground } from '@/components/ui/NeoDotsBackground'
 import type { TableWithStatus, TableShape, TableStatus, ServerAssignment, FloorPlanElement, FloorPlanElementType, Server, WaitlistEntry } from '@/lib/types'
 
 // Status colors matching the Neo theme
@@ -43,6 +45,17 @@ function getTurnTimeColor(status: TurnTimeStatus): string {
     case 'red':
       return Neo.pink
   }
+}
+
+// Format turn time compactly: 45M, 1H23, 2H05, 3H
+function formatTurnTime(seatedAt: string): string {
+  const minutes = differenceInMinutes(new Date(), parseISO(seatedAt))
+  if (minutes >= 60) {
+    const hours = Math.floor(minutes / 60)
+    const mins = minutes % 60
+    return `${hours}H${mins > 0 ? mins.toString().padStart(2, '0') : ''}`
+  }
+  return `${minutes}M`
 }
 
 // Element rendering helpers
@@ -175,6 +188,8 @@ interface TableShapeProps {
   onLongPress: () => void
   containerWidth: number
   containerHeight: number
+  /** If true, table fills its parent instead of positioning itself absolutely */
+  fillParent?: boolean
 }
 
 function TableShapeComponent({
@@ -185,6 +200,7 @@ function TableShapeComponent({
   onLongPress,
   containerWidth,
   containerHeight,
+  fillParent = false,
 }: TableShapeProps) {
   const [pressed, setPressed] = useState(false)
   const [, forceUpdate] = useState(0)
@@ -209,6 +225,7 @@ function TableShapeComponent({
   const scale = Math.min(containerWidth, containerHeight) / 800
   const scaledWidth = Math.max(table.width * scale, 50)
   const scaledHeight = Math.max(table.height * scale, 40)
+  const effectiveHeight = table.shape === 'SQUARE' ? scaledWidth : scaledHeight
 
   // Get border radius based on shape
   const getBorderRadius = () => {
@@ -222,13 +239,13 @@ function TableShapeComponent({
     }
   }
 
-  // Turn time for seated tables
-  const showTurnTime =
+  // Show info badge for seated tables
+  const showInfoBadge =
     table.status === 'seated' &&
-    table.currentReservation?.seatedAt
+    table.currentReservation
 
-  const turnTimeStatus = showTurnTime
-    ? getTurnTimeStatus(table.currentReservation!.seatedAt!, 75) // Default 75 min
+  const turnTimeStatus = showInfoBadge && table.currentReservation?.seatedAt
+    ? getTurnTimeStatus(table.currentReservation.seatedAt, 75) // Default 75 min
     : null
 
   const handlePress = () => {
@@ -241,8 +258,8 @@ function TableShapeComponent({
     onLongPress()
   }
 
-  // Combine rotation with pressed offset to avoid transform override
-  const getTransform = (): { rotate: string }[] | { rotate: string; translateX?: never; translateY?: never }[] => {
+  // Get transform for rotation + pressed state
+  const getShapeTransform = () => {
     if (pressed) {
       return [
         { rotate: `${table.rotation}deg` },
@@ -253,73 +270,152 @@ function TableShapeComponent({
     return [{ rotate: `${table.rotation}deg` }]
   }
 
-  return (
-    <Pressable
-      style={[
-        styles.tableShape,
-        {
-          left: posX - scaledWidth / 2,
-          top: posY - scaledHeight / 2,
-          width: scaledWidth,
-          height: table.shape === 'SQUARE' ? scaledWidth : scaledHeight,
-          backgroundColor: statusColor,
-          borderRadius: getBorderRadius(),
-          transform: getTransform(),
-        },
-        isSelected && styles.tableSelected,
-        pressed && styles.tablePressedShadow,
-        serverColor && { borderColor: serverColor, borderWidth: 4 },
-      ]}
-      onPress={handlePress}
-      onLongPress={handleLongPress}
-      onPressIn={() => setPressed(true)}
-      onPressOut={() => setPressed(false)}
-      accessibilityLabel={`Table ${table.table_number}, ${table.status}${table.currentReservation ? `, ${table.currentReservation.name}` : ''}`}
-      accessibilityRole="button"
-      accessibilityState={{ selected: isSelected }}
-    >
-      <View
-        style={[
-          styles.tableContent,
-          { transform: [{ rotate: `-${table.rotation}deg` }] },
-        ]}
-      >
-        <Text style={[styles.tableNumber, { color: textColor }]}>
-          {table.table_number}
-        </Text>
-        <Text style={[styles.tableCapacity, { color: textColor }]}>
-          {table.min_capacity === table.max_capacity
-            ? `${table.max_capacity}`
-            : `${table.min_capacity}-${table.max_capacity}`}
-        </Text>
-        {table.currentReservation && (
-          <Text
-            style={[styles.tableName, { color: textColor }]}
-            numberOfLines={1}
-          >
-            {table.currentReservation.name}
-          </Text>
+  // Extract first name from full name
+  const firstName = table.currentReservation?.name?.split(' ')[0] || ''
+
+  // In fillParent mode, render wrapper that allows badge to overflow
+  // The wrapper fills the parent, shape is inside, badge is positioned below
+  if (fillParent) {
+    return (
+      <View style={styles.tableWrapper}>
+        {/* The rotated table shape */}
+        <Pressable
+          style={[
+            styles.tableShape,
+            styles.tableShapeFill,
+            {
+              backgroundColor: statusColor,
+              borderRadius: getBorderRadius(),
+              transform: getShapeTransform(),
+            },
+            isSelected && styles.tableSelected,
+            pressed && styles.tablePressedShadow,
+            serverColor && { borderColor: serverColor, borderWidth: 4 },
+          ]}
+          onPress={handlePress}
+          onLongPress={handleLongPress}
+          onPressIn={() => setPressed(true)}
+          onPressOut={() => setPressed(false)}
+          accessibilityLabel={`Table ${table.table_number}, ${table.status}${table.currentReservation ? `, ${table.currentReservation.name}` : ''}`}
+          accessibilityRole="button"
+          accessibilityState={{ selected: isSelected }}
+        >
+          {/* Content - counter-rotated to stay level for readability */}
+          <View style={[styles.tableContent, { transform: [{ rotate: `-${table.rotation}deg` }] }]}>
+            <Text style={[styles.tableNumber, { color: textColor }]}>
+              {table.table_number}
+            </Text>
+            <Text style={[styles.tableCapacity, { color: textColor }]}>
+              {table.min_capacity === table.max_capacity
+                ? `${table.max_capacity}`
+                : `${table.min_capacity}-${table.max_capacity}`}
+            </Text>
+          </View>
+        </Pressable>
+
+        {/* Info badge - absolutely positioned below, centered */}
+        {showInfoBadge && (
+          <View style={styles.infoBadgeContainer}>
+            <View
+              style={[
+                styles.infoBadge,
+                {
+                  backgroundColor: turnTimeStatus
+                    ? getTurnTimeColor(turnTimeStatus)
+                    : statusColor,
+                },
+              ]}
+            >
+              <Text style={styles.infoBadgeName} numberOfLines={1}>
+                {firstName}
+              </Text>
+              {table.currentReservation?.seatedAt && (
+                <Text style={styles.infoBadgeTime}>
+                  {formatTurnTime(table.currentReservation.seatedAt)}
+                </Text>
+              )}
+            </View>
+          </View>
         )}
       </View>
+    )
+  }
 
-      {/* Turn time indicator for seated tables */}
-      {showTurnTime && turnTimeStatus && (
-        <View
-          style={[
-            styles.turnTimeBadge,
-            { backgroundColor: getTurnTimeColor(turnTimeStatus) },
-          ]}
-        >
-          <Text style={styles.turnTimeText}>
-            {differenceInMinutes(
-              new Date(),
-              parseISO(table.currentReservation!.seatedAt!)
-            )}
-            m
+  // Non-fillParent mode: position absolutely
+  return (
+    <View
+      style={[
+        styles.tableContainer,
+        {
+          left: posX,
+          top: posY,
+        },
+      ]}
+    >
+      {/* The rotated table shape - positioned from center */}
+      <Pressable
+        style={[
+          styles.tableShape,
+          {
+            position: 'absolute',
+            left: -scaledWidth / 2,
+            top: -effectiveHeight / 2,
+            width: scaledWidth,
+            height: effectiveHeight,
+            backgroundColor: statusColor,
+            borderRadius: getBorderRadius(),
+            transform: getShapeTransform(),
+          },
+          isSelected && styles.tableSelected,
+          pressed && styles.tablePressedShadow,
+          serverColor && { borderColor: serverColor, borderWidth: 4 },
+        ]}
+        onPress={handlePress}
+        onLongPress={handleLongPress}
+        onPressIn={() => setPressed(true)}
+        onPressOut={() => setPressed(false)}
+        accessibilityLabel={`Table ${table.table_number}, ${table.status}${table.currentReservation ? `, ${table.currentReservation.name}` : ''}`}
+        accessibilityRole="button"
+        accessibilityState={{ selected: isSelected }}
+      >
+        {/* Content - counter-rotated to stay level for readability */}
+        <View style={[styles.tableContent, { transform: [{ rotate: `-${table.rotation}deg` }] }]}>
+          <Text style={[styles.tableNumber, { color: textColor }]}>
+            {table.table_number}
+          </Text>
+          <Text style={[styles.tableCapacity, { color: textColor }]}>
+            {table.min_capacity === table.max_capacity
+              ? `${table.max_capacity}`
+              : `${table.min_capacity}-${table.max_capacity}`}
           </Text>
         </View>
+      </Pressable>
+
+      {/* Info badge - uses screen coordinates, always below center */}
+      {showInfoBadge && (
+        <View
+          style={[
+            styles.infoBadge,
+            {
+              position: 'absolute',
+              top: effectiveHeight / 2 + 4,
+              backgroundColor: turnTimeStatus
+                ? getTurnTimeColor(turnTimeStatus)
+                : statusColor,
+            },
+          ]}
+        >
+          <Text style={styles.infoBadgeName} numberOfLines={1}>
+            {firstName}
+          </Text>
+          {table.currentReservation?.seatedAt && (
+            <Text style={styles.infoBadgeTime}>
+              {formatTurnTime(table.currentReservation.seatedAt)}
+            </Text>
+          )}
+        </View>
       )}
-    </Pressable>
+    </View>
   )
 }
 
@@ -539,6 +635,9 @@ export function FloorPlanCanvas({
           setContainerSize({ width, height })
         }}
       >
+        {/* Neo dots background pattern */}
+        <NeoDotsBackground />
+
         {/* Floor plan elements (behind tables) */}
         {containerSize.width > 0 &&
           elements
@@ -563,25 +662,46 @@ export function FloorPlanCanvas({
               effectiveServerColor = pending?.serverColor ?? undefined
             }
 
+            // Calculate position for DropTarget
+            const scale = Math.min(containerSize.width, containerSize.height) / 800
+            const posX = table.position_x != null ? (table.position_x / 100) * containerSize.width : 0
+            const posY = table.position_y != null ? (table.position_y / 100) * containerSize.height : 0
+            const scaledWidth = Math.max(table.width * scale, 50)
+            const scaledHeight = table.shape === 'SQUARE' ? scaledWidth : Math.max(table.height * scale, 40)
+
             return (
-              <TableShapeComponent
+              <DropTarget
                 key={table.id}
-                table={table}
-                isSelected={selectedTableId === table.id}
-                serverColor={effectiveServerColor}
-                onPress={() => {
-                  if (mode === 'server-assignment' && selectedServerId) {
-                    onToggleTableServer?.(table.id)
-                  } else if (mode === 'seat-waitlist' && waitlistEntry && table.status === 'available') {
-                    onSeatWaitlistAtTable?.(table.id)
-                  } else {
-                    onTablePress(table)
-                  }
+                tableId={table.id}
+                minCapacity={table.min_capacity}
+                maxCapacity={table.max_capacity}
+                isAvailable={table.status === 'available'}
+                style={{
+                  left: posX - scaledWidth / 2,
+                  top: posY - scaledHeight / 2,
+                  width: scaledWidth,
+                  height: scaledHeight,
                 }}
-                onLongPress={() => onTableLongPress(table)}
-                containerWidth={containerSize.width}
-                containerHeight={containerSize.height}
-              />
+              >
+                <TableShapeComponent
+                  table={table}
+                  isSelected={selectedTableId === table.id}
+                  serverColor={effectiveServerColor}
+                  fillParent={true}
+                  onPress={() => {
+                    if (mode === 'server-assignment' && selectedServerId) {
+                      onToggleTableServer?.(table.id)
+                    } else if (mode === 'seat-waitlist' && waitlistEntry && table.status === 'available') {
+                      onSeatWaitlistAtTable?.(table.id)
+                    } else {
+                      onTablePress(table)
+                    }
+                  }}
+                  onLongPress={() => onTableLongPress(table)}
+                  containerWidth={containerSize.width}
+                  containerHeight={containerSize.height}
+                />
+              </DropTarget>
             )
           })}
       </Pressable>
@@ -639,13 +759,9 @@ const styles = StyleSheet.create({
   canvas: {
     flex: 1,
     position: 'relative',
-    margin: 12,
-    borderWidth: NeoBorder.thin,
-    borderColor: Neo.black + '30',
-    backgroundColor: Neo.white,
+    backgroundColor: Neo.cream,
   },
   tableShape: {
-    position: 'absolute',
     borderWidth: NeoBorder.thin,
     borderColor: Neo.black,
     justifyContent: 'center',
@@ -700,24 +816,51 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     opacity: 0.8,
   },
-  tableName: {
-    fontSize: 8,
-    fontWeight: '700',
+  // Styles for separated shape + badge layout
+  tableWrapper: {
+    flex: 1,
+    overflow: 'visible',
+  },
+  tableShapeFill: {
+    // Fill the entire parent - don't use flex since we want consistent size
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  tableContainer: {
+    position: 'absolute',
+    alignItems: 'center',
+  },
+  infoBadgeContainer: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  infoBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderWidth: 2,
+    borderColor: Neo.black,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  infoBadgeName: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: Neo.black,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    marginTop: 2,
+    textTransform: 'uppercase',
     maxWidth: 60,
   },
-  turnTimeBadge: {
-    position: 'absolute',
-    bottom: -12,
-    paddingHorizontal: 4,
-    paddingVertical: 1,
-    borderWidth: 1,
-    borderColor: Neo.black,
-  },
-  turnTimeText: {
-    fontSize: 8,
-    fontWeight: '800',
+  infoBadgeTime: {
+    fontSize: 9,
+    fontWeight: '900',
     color: Neo.black,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
