@@ -27,7 +27,7 @@ import type {
   NotificationSettings,
   SeatingSettings,
   BlockedDate,
-  Zone,
+  ZonesData,
   OperatingHour,
 } from '../types'
 
@@ -384,17 +384,13 @@ export function useBlockedDates() {
   })
 }
 
-// Zones query
-interface ZonesResponse {
-  zones: Zone[]
-}
-
-export function useZones() {
+// Zones query - returns full zones data including groups, memberships, booking rules, pacing rules
+export function useZonesData() {
   const api = useApiClient()
 
   return useQuery({
     queryKey: ['zones'],
-    queryFn: () => api.get<ZonesResponse>('/api/admin/zones'),
+    queryFn: () => api.get<ZonesData>('/api/admin/zones'),
     staleTime: 1000 * 60 * 5, // 5 minutes - zones don't change often
   })
 }

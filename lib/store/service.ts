@@ -8,9 +8,10 @@ interface ServiceState {
   selectedDate: Date
   selectedZoneId: number | null
 
-  // Selection
+  // Selection (uses uuid strings for API consistency)
   selectedTableId: number | null
-  selectedReservationId: number | null
+  selectedReservationUuid: string | null
+  selectedWaitlistUuid: string | null
 
   // Modes
   mode: ServiceMode
@@ -29,7 +30,8 @@ interface ServiceActions {
 
   // Selection
   selectTable: (tableId: number | null) => void
-  selectReservation: (id: number | null) => void
+  selectReservation: (uuid: string | null) => void
+  selectWaitlist: (uuid: string | null) => void
   clearSelection: () => void
 
   // Walk-in mode
@@ -58,7 +60,8 @@ const initialState: ServiceState = {
   selectedDate: new Date(),
   selectedZoneId: null,
   selectedTableId: null,
-  selectedReservationId: null,
+  selectedReservationUuid: null,
+  selectedWaitlistUuid: null,
   mode: 'normal',
   walkInTableId: null,
   walkInPartySize: null,
@@ -79,17 +82,26 @@ export const useServiceStore = create<ServiceStore>((set, get) => ({
   selectTable: (tableId) =>
     set({
       selectedTableId: tableId,
-      selectedReservationId: null,
+      selectedReservationUuid: null,
+      selectedWaitlistUuid: null,
     }),
-  selectReservation: (id) =>
+  selectReservation: (uuid) =>
     set({
-      selectedReservationId: id,
+      selectedReservationUuid: uuid,
       selectedTableId: null,
+      selectedWaitlistUuid: null,
+    }),
+  selectWaitlist: (uuid) =>
+    set({
+      selectedWaitlistUuid: uuid,
+      selectedTableId: null,
+      selectedReservationUuid: null,
     }),
   clearSelection: () =>
     set({
       selectedTableId: null,
-      selectedReservationId: null,
+      selectedReservationUuid: null,
+      selectedWaitlistUuid: null,
     }),
 
   // Walk-in mode
@@ -98,7 +110,8 @@ export const useServiceStore = create<ServiceStore>((set, get) => ({
       mode: 'walk-in',
       walkInTableId: tableId ?? null,
       walkInPartySize: partySize ?? null,
-      selectedReservationId: null,
+      selectedReservationUuid: null,
+      selectedWaitlistUuid: null,
     }),
   setWalkInPartySize: (size) =>
     set({
@@ -116,7 +129,8 @@ export const useServiceStore = create<ServiceStore>((set, get) => ({
     set({
       mode: 'seat-waitlist',
       waitlistEntryUuid: entryUuid,
-      selectedReservationId: null,
+      selectedReservationUuid: null,
+      selectedWaitlistUuid: null,
     }),
   exitSeatWaitlistMode: () =>
     set({
@@ -131,7 +145,8 @@ export const useServiceStore = create<ServiceStore>((set, get) => ({
       assigningServerId: serverId,
       pendingServerAssignments: [],
       selectedTableId: null,
-      selectedReservationId: null,
+      selectedReservationUuid: null,
+      selectedWaitlistUuid: null,
     }),
   toggleTableAssignment: (tableId) => {
     const { pendingServerAssignments, assigningServerId } = get()

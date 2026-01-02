@@ -155,7 +155,8 @@ function SectionHeader({ title }: { title: string }) {
   )
 }
 
-export default function NotificationsScreen() {
+// Exported content component for use in split view
+export function NotificationsSettingsContent() {
   const { data: settings, isLoading, refetch, isRefetching } = useNotificationSettings()
   const updateSettings = useUpdateNotificationSettings()
 
@@ -190,179 +191,184 @@ export default function NotificationsScreen() {
 
   if (isLoading || !localSettings) {
     return (
-      <SafeAreaView style={styles.container} edges={['bottom']}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={Neo.black} />
-        </View>
-      </SafeAreaView>
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={Neo.black} />
+      </View>
     )
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['bottom']}>
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        refreshControl={
-          <RefreshControl
-            refreshing={isRefetching}
-            onRefresh={refetch}
-            tintColor={Neo.black}
+    <ScrollView
+      style={styles.scrollView}
+      contentContainerStyle={styles.scrollContent}
+      refreshControl={
+        <RefreshControl
+          refreshing={isRefetching}
+          onRefresh={refetch}
+          tintColor={Neo.black}
+        />
+      }
+    >
+      {/* Guest Reminders */}
+      <View style={styles.section}>
+        <SectionHeader title="GUEST REMINDERS" />
+        <View style={styles.card}>
+          <SettingRow
+            label="Send Reminder Email"
+            description="Send guests an email reminder before their reservation"
+            value={localSettings.reminderEnabled}
+            onToggle={(v) => updateLocal({ reminderEnabled: v })}
           />
-        }
-      >
-        {/* Guest Reminders */}
-        <View style={styles.section}>
-          <SectionHeader title="GUEST REMINDERS" />
-          <View style={styles.card}>
-            <SettingRow
-              label="Send Reminder Email"
-              description="Send guests an email reminder before their reservation"
-              value={localSettings.reminderEnabled}
-              onToggle={(v) => updateLocal({ reminderEnabled: v })}
+          {localSettings.reminderEnabled && (
+            <NumberStepper
+              label="Hours before"
+              value={localSettings.reminderHoursBefore}
+              onChange={(v) => updateLocal({ reminderHoursBefore: v })}
+              min={1}
+              max={72}
+              suffix="h"
             />
-            {localSettings.reminderEnabled && (
-              <NumberStepper
-                label="Hours before"
-                value={localSettings.reminderHoursBefore}
-                onChange={(v) => updateLocal({ reminderHoursBefore: v })}
-                min={1}
-                max={72}
-                suffix="h"
-              />
-            )}
-          </View>
+          )}
         </View>
+      </View>
 
-        {/* Post-Visit */}
-        <View style={styles.section}>
-          <SectionHeader title="POST-VISIT FOLLOW-UP" />
-          <View style={styles.card}>
-            <SettingRow
-              label="Send Follow-up Email"
-              description="Send guests an email after their visit"
-              value={localSettings.postVisitEnabled}
-              onToggle={(v) => updateLocal({ postVisitEnabled: v })}
+      {/* Post-Visit */}
+      <View style={styles.section}>
+        <SectionHeader title="POST-VISIT FOLLOW-UP" />
+        <View style={styles.card}>
+          <SettingRow
+            label="Send Follow-up Email"
+            description="Send guests an email after their visit"
+            value={localSettings.postVisitEnabled}
+            onToggle={(v) => updateLocal({ postVisitEnabled: v })}
+          />
+          {localSettings.postVisitEnabled && (
+            <NumberStepper
+              label="Hours after visit"
+              value={localSettings.postVisitDelayHours}
+              onChange={(v) => updateLocal({ postVisitDelayHours: v })}
+              min={1}
+              max={48}
+              suffix="h"
             />
-            {localSettings.postVisitEnabled && (
-              <NumberStepper
-                label="Hours after visit"
-                value={localSettings.postVisitDelayHours}
-                onChange={(v) => updateLocal({ postVisitDelayHours: v })}
-                min={1}
-                max={48}
-                suffix="h"
-              />
-            )}
-          </View>
+          )}
         </View>
+      </View>
 
-        {/* SMS */}
-        <View style={styles.section}>
-          <SectionHeader title="SMS NOTIFICATIONS" />
-          <View style={styles.card}>
+      {/* SMS */}
+      <View style={styles.section}>
+        <SectionHeader title="SMS NOTIFICATIONS" />
+        <View style={styles.card}>
+          <SettingRow
+            label="Enable SMS"
+            description="Send SMS notifications to guests"
+            value={localSettings.smsEnabled}
+            onToggle={(v) => updateLocal({ smsEnabled: v })}
+          />
+          {localSettings.smsEnabled && (
             <SettingRow
-              label="Enable SMS"
-              description="Send SMS notifications to guests"
-              value={localSettings.smsEnabled}
-              onToggle={(v) => updateLocal({ smsEnabled: v })}
+              label="Require Phone Number"
+              description="Make phone number required for reservations"
+              value={localSettings.smsPhoneRequired}
+              onToggle={(v) => updateLocal({ smsPhoneRequired: v })}
+              indent
             />
-            {localSettings.smsEnabled && (
+          )}
+        </View>
+      </View>
+
+      {/* Staff Notifications */}
+      <View style={styles.section}>
+        <SectionHeader title="STAFF NOTIFICATIONS" />
+        <View style={styles.card}>
+          <SettingRow
+            label="Enable Staff Notifications"
+            description="Send email notifications to staff"
+            value={localSettings.staffNotificationsEnabled}
+            onToggle={(v) => updateLocal({ staffNotificationsEnabled: v })}
+          />
+          {localSettings.staffNotificationsEnabled && (
+            <>
+              <View style={styles.divider} />
+              <Text style={styles.subheader}>NOTIFY WHEN:</Text>
               <SettingRow
-                label="Require Phone Number"
-                description="Make phone number required for reservations"
-                value={localSettings.smsPhoneRequired}
-                onToggle={(v) => updateLocal({ smsPhoneRequired: v })}
+                label="New Booking"
+                value={localSettings.staffNotifyOnNewBooking}
+                onToggle={(v) => updateLocal({ staffNotifyOnNewBooking: v })}
                 indent
               />
-            )}
-          </View>
+              <SettingRow
+                label="Guest Confirms"
+                value={localSettings.staffNotifyOnConfirmation}
+                onToggle={(v) => updateLocal({ staffNotifyOnConfirmation: v })}
+                indent
+              />
+              <SettingRow
+                label="Cancellation"
+                value={localSettings.staffNotifyOnCancellation}
+                onToggle={(v) => updateLocal({ staffNotifyOnCancellation: v })}
+                indent
+              />
+              <SettingRow
+                label="Modification"
+                value={localSettings.staffNotifyOnModification}
+                onToggle={(v) => updateLocal({ staffNotifyOnModification: v })}
+                indent
+              />
+              <View style={styles.divider} />
+              <View style={styles.emailInputContainer}>
+                <Text style={styles.inputLabel}>STAFF EMAILS</Text>
+                <Text style={styles.inputHint}>Comma-separated list of emails</Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={localSettings.staffNotificationEmails || ''}
+                  onChangeText={(v) => updateLocal({ staffNotificationEmails: v || null })}
+                  placeholder="staff@example.com, manager@example.com"
+                  placeholderTextColor={Neo.black + '40'}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  multiline
+                />
+              </View>
+            </>
+          )}
         </View>
+      </View>
 
-        {/* Staff Notifications */}
-        <View style={styles.section}>
-          <SectionHeader title="STAFF NOTIFICATIONS" />
-          <View style={styles.card}>
-            <SettingRow
-              label="Enable Staff Notifications"
-              description="Send email notifications to staff"
-              value={localSettings.staffNotificationsEnabled}
-              onToggle={(v) => updateLocal({ staffNotificationsEnabled: v })}
-            />
-            {localSettings.staffNotificationsEnabled && (
-              <>
-                <View style={styles.divider} />
-                <Text style={styles.subheader}>NOTIFY WHEN:</Text>
-                <SettingRow
-                  label="New Booking"
-                  value={localSettings.staffNotifyOnNewBooking}
-                  onToggle={(v) => updateLocal({ staffNotifyOnNewBooking: v })}
-                  indent
-                />
-                <SettingRow
-                  label="Guest Confirms"
-                  value={localSettings.staffNotifyOnConfirmation}
-                  onToggle={(v) => updateLocal({ staffNotifyOnConfirmation: v })}
-                  indent
-                />
-                <SettingRow
-                  label="Cancellation"
-                  value={localSettings.staffNotifyOnCancellation}
-                  onToggle={(v) => updateLocal({ staffNotifyOnCancellation: v })}
-                  indent
-                />
-                <SettingRow
-                  label="Modification"
-                  value={localSettings.staffNotifyOnModification}
-                  onToggle={(v) => updateLocal({ staffNotifyOnModification: v })}
-                  indent
-                />
-                <View style={styles.divider} />
-                <View style={styles.emailInputContainer}>
-                  <Text style={styles.inputLabel}>STAFF EMAILS</Text>
-                  <Text style={styles.inputHint}>Comma-separated list of emails</Text>
-                  <TextInput
-                    style={styles.textInput}
-                    value={localSettings.staffNotificationEmails || ''}
-                    onChangeText={(v) => updateLocal({ staffNotificationEmails: v || null })}
-                    placeholder="staff@example.com, manager@example.com"
-                    placeholderTextColor={Neo.black + '40'}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    multiline
-                  />
-                </View>
-              </>
+      {/* Save Button */}
+      {isDirty && (
+        <View style={styles.saveContainer}>
+          <Pressable
+            style={({ pressed }) => [
+              styles.saveButton,
+              NeoShadow.sm,
+              pressed && styles.saveButtonPressed,
+            ]}
+            onPress={handleSave}
+            disabled={updateSettings.isPending}
+            accessibilityRole="button"
+            accessibilityLabel="Save notification settings"
+          >
+            {updateSettings.isPending ? (
+              <ActivityIndicator size="small" color={Neo.black} />
+            ) : (
+              <Text style={styles.saveButtonText}>SAVE CHANGES</Text>
             )}
-          </View>
+          </Pressable>
         </View>
+      )}
 
-        {/* Save Button */}
-        {isDirty && (
-          <View style={styles.saveContainer}>
-            <Pressable
-              style={({ pressed }) => [
-                styles.saveButton,
-                NeoShadow.sm,
-                pressed && styles.saveButtonPressed,
-              ]}
-              onPress={handleSave}
-              disabled={updateSettings.isPending}
-              accessibilityRole="button"
-              accessibilityLabel="Save notification settings"
-            >
-              {updateSettings.isPending ? (
-                <ActivityIndicator size="small" color={Neo.black} />
-              ) : (
-                <Text style={styles.saveButtonText}>SAVE CHANGES</Text>
-              )}
-            </Pressable>
-          </View>
-        )}
+      <View style={styles.bottomPadding} />
+    </ScrollView>
+  )
+}
 
-        <View style={styles.bottomPadding} />
-      </ScrollView>
+// Screen wrapper for standalone navigation
+export default function NotificationsScreen() {
+  return (
+    <SafeAreaView style={styles.container} edges={['bottom']}>
+      <NotificationsSettingsContent />
     </SafeAreaView>
   )
 }

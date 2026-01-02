@@ -18,6 +18,7 @@ import * as Haptics from 'expo-haptics'
 import { Neo, NeoBorder, NeoShadow } from '@/constants/theme'
 import { useOperatingHours } from '@/lib/api/queries'
 import { useCreateOperatingHour, useUpdateOperatingHour, useDeleteOperatingHour } from '@/lib/api/mutations'
+import { TimePickerButton } from '@/components/ui/TimePicker'
 import type { OperatingHour } from '@/lib/types'
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
@@ -63,6 +64,7 @@ function HourRow({
   onToggleActive: (active: boolean) => void
 }) {
   const [pressed, setPressed] = useState(false)
+  const hasCustomTimes = hour.reservationStartTime || hour.lastSeatingTime
 
   return (
     <Pressable
@@ -79,15 +81,12 @@ function HourRow({
         </Text>
         <View style={styles.hourDetails}>
           <Text style={styles.hourDetail}>{hour.slotDuration}min slots</Text>
-          {hour.reservationStartTime && (
+          {hasCustomTimes ? (
             <Text style={styles.hourDetail}>
-              Res: {formatTime(hour.reservationStartTime)}
+              Res: {formatTime(hour.reservationStartTime || hour.openTime)} – {formatTime(hour.lastSeatingTime || hour.closeTime)}
             </Text>
-          )}
-          {hour.lastSeatingTime && (
-            <Text style={styles.hourDetail}>
-              Last: {formatTime(hour.lastSeatingTime)}
-            </Text>
+          ) : (
+            <Text style={styles.hourDetailAuto}>Last seating auto</Text>
           )}
         </View>
       </View>
@@ -144,6 +143,7 @@ interface HourFormData {
   dayOfWeek: number
   openTime: string
   closeTime: string
+  useCustomTimes: boolean
   reservationStartTime: string
   lastSeatingTime: string
   slotDuration: string
@@ -166,10 +166,12 @@ function HourModal({
   onDelete?: () => void
   isLoading: boolean
 }) {
+  const hasCustomTimes = !!(hour?.reservationStartTime || hour?.lastSeatingTime)
   const [formData, setFormData] = useState<HourFormData>({
     dayOfWeek: hour?.dayOfWeek ?? 1,
     openTime: hour?.openTime ?? '11:00',
     closeTime: hour?.closeTime ?? '22:00',
+    useCustomTimes: hasCustomTimes,
     reservationStartTime: hour?.reservationStartTime ?? '',
     lastSeatingTime: hour?.lastSeatingTime ?? '',
     slotDuration: hour?.slotDuration?.toString() ?? '30',
@@ -205,49 +207,70 @@ function HourModal({
           <View style={styles.inputRow}>
             <View style={[styles.inputGroup, { flex: 1 }]}>
               <Text style={styles.inputLabel}>OPEN TIME</Text>
-              <TextInput
-                style={styles.textInput}
+              <TimePickerButton
                 value={formData.openTime}
-                onChangeText={(v) => setFormData({ ...formData, openTime: v })}
-                placeholder="11:00"
-                placeholderTextColor={Neo.black + '40'}
+                onChange={(v) => setFormData({ ...formData, openTime: v })}
+                placeholder="11:00 AM"
               />
             </View>
             <View style={styles.inputSpacer} />
             <View style={[styles.inputGroup, { flex: 1 }]}>
               <Text style={styles.inputLabel}>CLOSE TIME</Text>
-              <TextInput
-                style={styles.textInput}
+              <TimePickerButton
                 value={formData.closeTime}
-                onChangeText={(v) => setFormData({ ...formData, closeTime: v })}
-                placeholder="22:00"
-                placeholderTextColor={Neo.black + '40'}
+                onChange={(v) => setFormData({ ...formData, closeTime: v })}
+                placeholder="10:00 PM"
               />
             </View>
           </View>
 
-          <View style={styles.inputRow}>
-            <View style={[styles.inputGroup, { flex: 1 }]}>
-              <Text style={styles.inputLabel}>RESERVATION START</Text>
-              <TextInput
-                style={styles.textInput}
-                value={formData.reservationStartTime}
-                onChangeText={(v) => setFormData({ ...formData, reservationStartTime: v })}
-                placeholder="Optional"
-                placeholderTextColor={Neo.black + '40'}
+          {/* Custom Reservation Times Toggle */}
+          <View style={styles.customTimesSection}>
+            <View style={styles.customTimesHeader}>
+              <View style={styles.customTimesInfo}>
+                <Text style={styles.customTimesLabel}>CUSTOM RESERVATION TIMES</Text>
+                <Text style={styles.customTimesHint}>
+                  Override auto-calculated last seating
+                </Text>
+              </View>
+              <NeoToggle
+                value={formData.useCustomTimes}
+                onToggle={(v) => setFormData({ ...formData, useCustomTimes: v })}
               />
             </View>
-            <View style={styles.inputSpacer} />
-            <View style={[styles.inputGroup, { flex: 1 }]}>
-              <Text style={styles.inputLabel}>LAST SEATING</Text>
-              <TextInput
-                style={styles.textInput}
-                value={formData.lastSeatingTime}
-                onChangeText={(v) => setFormData({ ...formData, lastSeatingTime: v })}
-                placeholder="Optional"
-                placeholderTextColor={Neo.black + '40'}
-              />
-            </View>
+
+            {formData.useCustomTimes ? (
+              <View style={styles.customTimesFields}>
+                <View style={styles.inputRow}>
+                  <View style={[styles.inputGroup, { flex: 1 }]}>
+                    <Text style={styles.inputLabel}>RESERVATIONS START</Text>
+                    <TimePickerButton
+                      value={formData.reservationStartTime || formData.openTime}
+                      onChange={(v) => setFormData({ ...formData, reservationStartTime: v })}
+                      placeholder="Start time"
+                    />
+                  </View>
+                  <View style={styles.inputSpacer} />
+                  <View style={[styles.inputGroup, { flex: 1 }]}>
+                    <Text style={styles.inputLabel}>LAST SEATING</Text>
+                    <TimePickerButton
+                      value={formData.lastSeatingTime || formData.closeTime}
+                      onChange={(v) => setFormData({ ...formData, lastSeatingTime: v })}
+                      placeholder="End time"
+                    />
+                  </View>
+                </View>
+              </View>
+            ) : (
+              <View style={styles.autoExplanation}>
+                <Text style={styles.autoExplanationText}>
+                  Last seating is calculated automatically based on party size and turn times.
+                </Text>
+                <Text style={styles.autoExplanationExample}>
+                  Example: Close at 10pm with 90min turn → last seating ~8:30pm for larger parties
+                </Text>
+              </View>
+            )}
           </View>
 
           <View style={styles.inputGroup}>
@@ -293,7 +316,8 @@ function HourModal({
   )
 }
 
-export default function HoursScreen() {
+// Exported content component for use in split view
+export function HoursSettingsContent() {
   const { data, isLoading, refetch, isRefetching } = useOperatingHours()
   const createHour = useCreateOperatingHour()
   const updateHour = useUpdateOperatingHour()
@@ -348,14 +372,18 @@ export default function HoursScreen() {
   const handleSave = async (formData: HourFormData) => {
     const slotDuration = parseInt(formData.slotDuration, 10) || 30
 
+    // Clear custom times if toggle is off
+    const reservationStartTime = formData.useCustomTimes ? (formData.reservationStartTime || null) : null
+    const lastSeatingTime = formData.useCustomTimes ? (formData.lastSeatingTime || null) : null
+
     try {
       if (editingHour) {
         await updateHour.mutateAsync({
           id: editingHour.id,
           openTime: formData.openTime,
           closeTime: formData.closeTime,
-          reservationStartTime: formData.reservationStartTime || null,
-          lastSeatingTime: formData.lastSeatingTime || null,
+          reservationStartTime,
+          lastSeatingTime,
           slotDuration,
         })
       } else {
@@ -363,8 +391,8 @@ export default function HoursScreen() {
           dayOfWeek: formData.dayOfWeek,
           openTime: formData.openTime,
           closeTime: formData.closeTime,
-          reservationStartTime: formData.reservationStartTime || null,
-          lastSeatingTime: formData.lastSeatingTime || null,
+          reservationStartTime,
+          lastSeatingTime,
           slotDuration,
         })
       }
@@ -410,16 +438,14 @@ export default function HoursScreen() {
 
   if (isLoading) {
     return (
-      <SafeAreaView style={styles.container} edges={['bottom']}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={Neo.black} />
-        </View>
-      </SafeAreaView>
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={Neo.black} />
+      </View>
     )
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['bottom']}>
+    <View style={styles.contentContainer}>
       <SectionList
         sections={sections}
         keyExtractor={(item) => item.id.toString()}
@@ -473,12 +499,25 @@ export default function HoursScreen() {
         onDelete={editingHour ? handleDelete : undefined}
         isLoading={createHour.isPending || updateHour.isPending}
       />
+    </View>
+  )
+}
+
+// Screen wrapper for standalone navigation
+export default function HoursScreen() {
+  return (
+    <SafeAreaView style={styles.container} edges={['bottom']}>
+      <HoursSettingsContent />
     </SafeAreaView>
   )
 }
 
 const styles = StyleSheet.create({
   container: {
+    flex: 1,
+    backgroundColor: Neo.cream,
+  },
+  contentContainer: {
     flex: 1,
     backgroundColor: Neo.cream,
   },
@@ -535,6 +574,12 @@ const styles = StyleSheet.create({
   hourDetail: {
     fontSize: 11,
     color: Neo.black + '60',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  hourDetailAuto: {
+    fontSize: 11,
+    color: Neo.black + '40',
+    fontStyle: 'italic',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   toggleContainer: {
@@ -635,6 +680,60 @@ const styles = StyleSheet.create({
   },
   inputSpacer: {
     width: 12,
+  },
+  customTimesSection: {
+    marginBottom: 16,
+    backgroundColor: Neo.cream,
+    borderWidth: NeoBorder.thin,
+    borderColor: Neo.black,
+    padding: 12,
+  },
+  customTimesHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  customTimesInfo: {
+    flex: 1,
+    marginRight: 12,
+  },
+  customTimesLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1,
+    color: Neo.black,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  customTimesHint: {
+    fontSize: 10,
+    color: Neo.black + '60',
+    marginTop: 2,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  customTimesFields: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: Neo.black + '20',
+  },
+  autoExplanation: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: Neo.black + '20',
+  },
+  autoExplanationText: {
+    fontSize: 12,
+    color: Neo.black + '70',
+    lineHeight: 18,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  autoExplanationExample: {
+    fontSize: 11,
+    color: Neo.black + '50',
+    marginTop: 8,
+    fontStyle: 'italic',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   inputLabel: {
     fontSize: 11,

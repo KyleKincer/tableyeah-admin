@@ -19,6 +19,10 @@ import type {
   TableInfo,
   TableShape,
   OperatingHour,
+  Zone,
+  ZoneGroup,
+  ZoneBookingRules,
+  ZonePacingRule,
 } from '../types'
 
 export function useSeatReservation() {
@@ -1048,6 +1052,238 @@ export function useDeleteOperatingHour() {
       api.delete<{ success: boolean }>(`/api/admin/operating-hours/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['operating-hours'] })
+    },
+  })
+}
+
+// Zone mutations
+
+interface CreateZoneData {
+  displayName: string
+  key: string
+  emoji?: string | null
+  color?: string
+  active?: boolean
+  publicBookable?: boolean
+}
+
+interface ZoneResponse {
+  id: number
+  success: boolean
+}
+
+export function useCreateZone() {
+  const api = useApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (data: CreateZoneData) =>
+      api.post<ZoneResponse>('/api/admin/zones', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['zones'] })
+    },
+  })
+}
+
+interface UpdateZoneData {
+  id: number
+  displayName?: string
+  key?: string
+  emoji?: string | null
+  color?: string
+  active?: boolean
+  publicBookable?: boolean
+}
+
+export function useUpdateZone() {
+  const api = useApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ id, ...data }: UpdateZoneData) =>
+      api.put<{ success: boolean }>(`/api/admin/zones/${id}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['zones'] })
+    },
+  })
+}
+
+export function useDeleteZone() {
+  const api = useApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (id: number) =>
+      api.delete<{ success: boolean }>(`/api/admin/zones/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['zones'] })
+      queryClient.invalidateQueries({ queryKey: ['tables'] })
+    },
+  })
+}
+
+// Zone group mutations
+
+interface CreateZoneGroupData {
+  displayName: string
+  key: string
+  emoji?: string | null
+  active?: boolean
+  publicVisible?: boolean
+}
+
+export function useCreateZoneGroup() {
+  const api = useApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (data: CreateZoneGroupData) =>
+      api.post<ZoneResponse>('/api/admin/zone-groups', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['zones'] })
+    },
+  })
+}
+
+interface UpdateZoneGroupData {
+  id: number
+  displayName?: string
+  key?: string
+  emoji?: string | null
+  active?: boolean
+  publicVisible?: boolean
+}
+
+export function useUpdateZoneGroup() {
+  const api = useApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ id, ...data }: UpdateZoneGroupData) =>
+      api.put<{ success: boolean }>(`/api/admin/zone-groups/${id}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['zones'] })
+    },
+  })
+}
+
+export function useDeleteZoneGroup() {
+  const api = useApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (id: number) =>
+      api.delete<{ success: boolean }>(`/api/admin/zone-groups/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['zones'] })
+    },
+  })
+}
+
+// Zone memberships mutation
+
+export function useUpdateZoneMemberships() {
+  const api = useApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ zoneId, groupIds }: { zoneId: number; groupIds: number[] }) =>
+      api.put<{ success: boolean }>(`/api/admin/zones/${zoneId}/memberships`, { groupIds }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['zones'] })
+    },
+  })
+}
+
+// Zone booking rules mutation
+
+interface UpdateZoneBookingRulesData {
+  zoneId: number
+  minPartySize?: number | null
+  maxPartySize?: number | null
+  turnTime2Top?: number | null
+  turnTime4Top?: number | null
+  turnTime6Top?: number | null
+  turnTimeLarge?: number | null
+  allowMultiTable?: boolean | null
+  allowCrossZone?: boolean
+}
+
+export function useUpdateZoneBookingRules() {
+  const api = useApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ zoneId, ...data }: UpdateZoneBookingRulesData) =>
+      api.put<{ success: boolean }>(`/api/admin/zones/${zoneId}/booking-rules`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['zones'] })
+    },
+  })
+}
+
+// Zone pacing rule mutations
+
+interface CreateZonePacingRuleData {
+  zoneId: number
+  dayOfWeek?: number | null
+  startTime?: string | null
+  endTime?: string | null
+  maxCoversPerSlot?: number | null
+  maxPartiesPerSlot?: number | null
+  active?: boolean
+}
+
+interface PacingRuleResponse {
+  id: number
+  success: boolean
+}
+
+export function useCreateZonePacingRule() {
+  const api = useApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ zoneId, ...data }: CreateZonePacingRuleData) =>
+      api.post<PacingRuleResponse>(`/api/admin/zones/${zoneId}/pacing-rules`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['zones'] })
+    },
+  })
+}
+
+interface UpdateZonePacingRuleData {
+  id: number
+  dayOfWeek?: number | null
+  startTime?: string | null
+  endTime?: string | null
+  maxCoversPerSlot?: number | null
+  maxPartiesPerSlot?: number | null
+  active?: boolean
+}
+
+export function useUpdateZonePacingRule() {
+  const api = useApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ id, ...data }: UpdateZonePacingRuleData) =>
+      api.put<{ success: boolean }>(`/api/admin/pacing-rules/${id}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['zones'] })
+    },
+  })
+}
+
+export function useDeleteZonePacingRule() {
+  const api = useApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (id: number) =>
+      api.delete<{ success: boolean }>(`/api/admin/pacing-rules/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['zones'] })
     },
   })
 }

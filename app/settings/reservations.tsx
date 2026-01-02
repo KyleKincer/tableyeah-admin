@@ -270,7 +270,8 @@ function AddBlockedDateModal({
   )
 }
 
-export default function ReservationsScreen() {
+// Exported content component for use in split view
+export function ReservationsSettingsContent() {
   const { data: seatingSettings, isLoading: isLoadingSeating, refetch: refetchSeating } = useSeatingSettings()
   const { data: blockedDates, isLoading: isLoadingDates, refetch: refetchDates } = useBlockedDates()
 
@@ -359,16 +360,14 @@ export default function ReservationsScreen() {
 
   if ((isLoadingSeating || isLoadingDates) && !localSeating) {
     return (
-      <SafeAreaView style={styles.container} edges={['bottom']}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={Neo.black} />
-        </View>
-      </SafeAreaView>
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={Neo.black} />
+      </View>
     )
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['bottom']}>
+    <View style={styles.contentContainer}>
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
@@ -517,12 +516,25 @@ export default function ReservationsScreen() {
         onAdd={handleAddBlockedDate}
         isLoading={createBlockedDate.isPending}
       />
+    </View>
+  )
+}
+
+// Screen wrapper for standalone navigation
+export default function ReservationsScreen() {
+  return (
+    <SafeAreaView style={styles.container} edges={['bottom']}>
+      <ReservationsSettingsContent />
     </SafeAreaView>
   )
 }
 
 const styles = StyleSheet.create({
   container: {
+    flex: 1,
+    backgroundColor: Neo.cream,
+  },
+  contentContainer: {
     flex: 1,
     backgroundColor: Neo.cream,
   },

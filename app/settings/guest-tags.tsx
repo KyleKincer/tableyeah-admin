@@ -301,7 +301,8 @@ function FAB({ onPress }: { onPress: () => void }) {
   )
 }
 
-export default function GuestTagsScreen() {
+// Exported content component for use in split view
+export function GuestTagsSettingsContent() {
   const { data, isLoading, refetch } = useGuestTagOptions()
   const [refreshing, setRefreshing] = useState(false)
   const [modalVisible, setModalVisible] = useState(false)
@@ -399,16 +400,20 @@ export default function GuestTagsScreen() {
     }
   }
 
-  return (
-    <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
-      {isLoading && !data ? (
-        <View style={styles.centered}>
-          <View style={styles.loadingCard}>
-            <ActivityIndicator size="large" color={Neo.black} />
-            <Text style={styles.loadingText}>LOADING...</Text>
-          </View>
+  if (isLoading && !data) {
+    return (
+      <View style={styles.centered}>
+        <View style={styles.loadingCard}>
+          <ActivityIndicator size="large" color={Neo.black} />
+          <Text style={styles.loadingText}>LOADING...</Text>
         </View>
-      ) : sortedTags.length === 0 ? (
+      </View>
+    )
+  }
+
+  return (
+    <View style={styles.contentContainer}>
+      {sortedTags.length === 0 ? (
         <ScrollView
           contentContainerStyle={styles.emptyState}
           refreshControl={
@@ -467,12 +472,25 @@ export default function GuestTagsScreen() {
         onDelete={handleDelete}
         isSaving={isSaving}
       />
+    </View>
+  )
+}
+
+// Screen wrapper for standalone navigation
+export default function GuestTagsScreen() {
+  return (
+    <SafeAreaView style={styles.container} edges={['bottom']}>
+      <GuestTagsSettingsContent />
     </SafeAreaView>
   )
 }
 
 const styles = StyleSheet.create({
   container: {
+    flex: 1,
+    backgroundColor: Neo.cream,
+  },
+  contentContainer: {
     flex: 1,
     backgroundColor: Neo.cream,
   },

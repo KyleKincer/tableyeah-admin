@@ -133,7 +133,8 @@ function TimezonePicker({
   )
 }
 
-export default function GeneralSettingsScreen() {
+// Exported content component for use in split view
+export function GeneralSettingsContent() {
   const { data, isLoading, refetch } = useGeneralSettings()
   const updateMutation = useUpdateGeneralSettings()
   const [refreshing, setRefreshing] = useState(false)
@@ -241,145 +242,150 @@ export default function GeneralSettingsScreen() {
 
   if (isLoading && !data) {
     return (
-      <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
-        <View style={styles.centered}>
-          <View style={styles.loadingCard}>
-            <ActivityIndicator size="large" color={Neo.black} />
-            <Text style={styles.loadingText}>LOADING...</Text>
-          </View>
+      <View style={styles.centered}>
+        <View style={styles.loadingCard}>
+          <ActivityIndicator size="large" color={Neo.black} />
+          <Text style={styles.loadingText}>LOADING...</Text>
         </View>
-      </SafeAreaView>
+      </View>
     )
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
-      <KeyboardAvoidingView
-        style={styles.keyboardAvoid}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={100}
+    <KeyboardAvoidingView
+      style={styles.keyboardAvoid}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={100}
+    >
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={Neo.black}
+          />
+        }
+        keyboardShouldPersistTaps="handled"
       >
-        <ScrollView
-          style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor={Neo.black}
+        <View style={styles.section}>
+          <Text style={styles.sectionHeader}>RESTAURANT INFO</Text>
+          <View style={styles.sectionContent}>
+            <FormField
+              label="NAME *"
+              value={name}
+              onChangeText={setName}
+              placeholder="Restaurant name"
+              autoCapitalize="words"
+              autoComplete="name"
             />
-          }
-          keyboardShouldPersistTaps="handled"
-        >
-          <View style={styles.section}>
-            <Text style={styles.sectionHeader}>RESTAURANT INFO</Text>
-            <View style={styles.sectionContent}>
-              <FormField
-                label="NAME *"
-                value={name}
-                onChangeText={setName}
-                placeholder="Restaurant name"
-                autoCapitalize="words"
-                autoComplete="name"
-              />
-              <FormField
-                label="EMAIL *"
-                value={email}
-                onChangeText={setEmail}
-                placeholder="contact@restaurant.com"
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoComplete="email"
-              />
-              <FormField
-                label="PHONE"
-                value={phone}
-                onChangeText={setPhone}
-                placeholder="(555) 555-5555"
-                keyboardType="phone-pad"
-                autoComplete="tel"
-              />
-              <FormField
-                label="WEBSITE"
-                value={websiteUrl}
-                onChangeText={setWebsiteUrl}
-                placeholder="https://www.restaurant.com"
-                keyboardType="url"
-                autoCapitalize="none"
-                autoComplete="url"
-              />
-            </View>
+            <FormField
+              label="EMAIL *"
+              value={email}
+              onChangeText={setEmail}
+              placeholder="contact@restaurant.com"
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoComplete="email"
+            />
+            <FormField
+              label="PHONE"
+              value={phone}
+              onChangeText={setPhone}
+              placeholder="(555) 555-5555"
+              keyboardType="phone-pad"
+              autoComplete="tel"
+            />
+            <FormField
+              label="WEBSITE"
+              value={websiteUrl}
+              onChangeText={setWebsiteUrl}
+              placeholder="https://www.restaurant.com"
+              keyboardType="url"
+              autoCapitalize="none"
+              autoComplete="url"
+            />
           </View>
+        </View>
 
-          <View style={styles.section}>
-            <Text style={styles.sectionHeader}>LOCATION</Text>
-            <View style={styles.sectionContent}>
-              <FormField
-                label="ADDRESS"
-                value={address}
-                onChangeText={setAddress}
-                placeholder="123 Main Street"
-                autoComplete="street-address"
-              />
-              <View style={styles.row}>
-                <View style={styles.cityField}>
-                  <FormField
-                    label="CITY"
-                    value={city}
-                    onChangeText={setCity}
-                    placeholder="City"
-                    autoCapitalize="words"
-                  />
-                </View>
-                <View style={styles.stateField}>
-                  <FormField
-                    label="STATE"
-                    value={state}
-                    onChangeText={setState}
-                    placeholder="CA"
-                    autoCapitalize="characters"
-                  />
-                </View>
-                <View style={styles.zipField}>
-                  <FormField
-                    label="ZIP"
-                    value={zipCode}
-                    onChangeText={setZipCode}
-                    placeholder="12345"
-                    autoComplete="postal-code"
-                  />
-                </View>
+        <View style={styles.section}>
+          <Text style={styles.sectionHeader}>LOCATION</Text>
+          <View style={styles.sectionContent}>
+            <FormField
+              label="ADDRESS"
+              value={address}
+              onChangeText={setAddress}
+              placeholder="123 Main Street"
+              autoComplete="street-address"
+            />
+            <View style={styles.row}>
+              <View style={styles.cityField}>
+                <FormField
+                  label="CITY"
+                  value={city}
+                  onChangeText={setCity}
+                  placeholder="City"
+                  autoCapitalize="words"
+                />
+              </View>
+              <View style={styles.stateField}>
+                <FormField
+                  label="STATE"
+                  value={state}
+                  onChangeText={setState}
+                  placeholder="CA"
+                  autoCapitalize="characters"
+                />
+              </View>
+              <View style={styles.zipField}>
+                <FormField
+                  label="ZIP"
+                  value={zipCode}
+                  onChangeText={setZipCode}
+                  placeholder="12345"
+                  autoComplete="postal-code"
+                />
               </View>
             </View>
           </View>
+        </View>
 
-          <View style={styles.section}>
-            <Text style={styles.sectionHeader}>TIME SETTINGS</Text>
-            <View style={styles.sectionContent}>
-              <TimezonePicker value={timezone} onChange={setTimezone} />
-            </View>
+        <View style={styles.section}>
+          <Text style={styles.sectionHeader}>TIME SETTINGS</Text>
+          <View style={styles.sectionContent}>
+            <TimezonePicker value={timezone} onChange={setTimezone} />
           </View>
+        </View>
 
-          <View style={styles.buttonContainer}>
-            <Pressable
-              style={[
-                styles.saveButton,
-                !hasChanges && styles.saveButtonDisabled,
-                updateMutation.isPending && styles.saveButtonDisabled,
-              ]}
-              onPress={handleSave}
-              disabled={!hasChanges || updateMutation.isPending}
-              accessibilityLabel="Save changes"
-              accessibilityRole="button"
-              accessibilityState={{ disabled: !hasChanges || updateMutation.isPending }}
-            >
-              <Text style={styles.saveButtonText}>
-                {updateMutation.isPending ? 'SAVING...' : 'SAVE CHANGES'}
-              </Text>
-            </Pressable>
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+        <View style={styles.buttonContainer}>
+          <Pressable
+            style={[
+              styles.saveButton,
+              !hasChanges && styles.saveButtonDisabled,
+              updateMutation.isPending && styles.saveButtonDisabled,
+            ]}
+            onPress={handleSave}
+            disabled={!hasChanges || updateMutation.isPending}
+            accessibilityLabel="Save changes"
+            accessibilityRole="button"
+            accessibilityState={{ disabled: !hasChanges || updateMutation.isPending }}
+          >
+            <Text style={styles.saveButtonText}>
+              {updateMutation.isPending ? 'SAVING...' : 'SAVE CHANGES'}
+            </Text>
+          </Pressable>
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
+  )
+}
+
+// Screen wrapper for standalone navigation
+export default function GeneralSettingsScreen() {
+  return (
+    <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
+      <GeneralSettingsContent />
     </SafeAreaView>
   )
 }

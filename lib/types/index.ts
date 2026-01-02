@@ -512,6 +512,57 @@ export interface Zone {
   publicBookable: boolean
 }
 
+// Zone group (e.g., "Indoor", "Outdoor", "Private Dining")
+export interface ZoneGroup {
+  id: number
+  key: string
+  displayName: string
+  emoji: string | null
+  sortOrder: number
+  active: boolean
+  publicVisible: boolean
+}
+
+// Which zones belong to which groups
+export interface ZoneGroupMembership {
+  zoneId: number
+  groupId: number
+}
+
+// Booking rules for a zone
+export interface ZoneBookingRules {
+  zoneId: number
+  minPartySize: number | null
+  maxPartySize: number | null
+  turnTime2Top: number | null
+  turnTime4Top: number | null
+  turnTime6Top: number | null
+  turnTimeLarge: number | null
+  allowMultiTable: boolean | null
+  allowCrossZone: boolean
+}
+
+// Pacing rules for a zone
+export interface ZonePacingRule {
+  id: number
+  zoneId: number
+  dayOfWeek: number | null // 0-6, null = all days
+  startTime: string | null // HH:MM, null = all day
+  endTime: string | null
+  maxCoversPerSlot: number | null
+  maxPartiesPerSlot: number | null
+  active: boolean
+}
+
+// Full zones data response from GET /api/admin/zones
+export interface ZonesData {
+  zones: Zone[]
+  zoneGroups: ZoneGroup[]
+  memberships: ZoneGroupMembership[]
+  bookingRules: ZoneBookingRules[]
+  pacingRules: ZonePacingRule[]
+}
+
 // Operating hours
 export interface OperatingHour {
   id: number

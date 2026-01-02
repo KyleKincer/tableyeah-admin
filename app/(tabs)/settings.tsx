@@ -8,7 +8,18 @@ import { Neo, NeoBorder, NeoShadow } from '@/constants/theme'
 import { useRestaurantStore } from '@/lib/store/restaurant'
 import { useDeviceType } from '@/lib/hooks/useDeviceType'
 
-type SettingScreen = 'general' | 'reservations' | 'hours' | 'notifications' | 'tables' | 'servers' | 'table-assignments' | 'guest-tags' | null
+// Content components for split view
+import { GeneralSettingsContent } from '@/app/settings/general'
+import { NotificationsSettingsContent } from '@/app/settings/notifications'
+import { ReservationsSettingsContent } from '@/app/settings/reservations'
+import { HoursSettingsContent } from '@/app/settings/hours'
+import { TablesSettingsContent } from '@/app/settings/tables'
+import { ServersSettingsContent } from '@/app/settings/servers'
+import { TableAssignmentsSettingsContent } from '@/app/settings/table-assignments'
+import { GuestTagsSettingsContent } from '@/app/settings/guest-tags'
+import { ZonesSettingsContent } from '@/app/settings/zones'
+
+type SettingScreen = 'general' | 'reservations' | 'hours' | 'notifications' | 'tables' | 'servers' | 'table-assignments' | 'guest-tags' | 'zones' | null
 
 function SettingsRow({
   label,
@@ -55,16 +66,32 @@ function DetailPane({ screen }: { screen: SettingScreen }) {
     )
   }
 
-  return (
-    <View style={styles.detailContent}>
-      <Text style={styles.detailPlaceholder}>
-        {screen.toUpperCase()} SETTINGS
-      </Text>
-      <Text style={styles.detailSubtext}>
-        Detail view for {screen} will be implemented here
-      </Text>
-    </View>
-  )
+  switch (screen) {
+    case 'general':
+      return <GeneralSettingsContent />
+    case 'notifications':
+      return <NotificationsSettingsContent />
+    case 'reservations':
+      return <ReservationsSettingsContent />
+    case 'hours':
+      return <HoursSettingsContent />
+    case 'tables':
+      return <TablesSettingsContent />
+    case 'servers':
+      return <ServersSettingsContent />
+    case 'table-assignments':
+      return <TableAssignmentsSettingsContent />
+    case 'guest-tags':
+      return <GuestTagsSettingsContent />
+    case 'zones':
+      return <ZonesSettingsContent />
+    default:
+      return (
+        <View style={styles.emptyDetail}>
+          <Text style={styles.emptyDetailText}>SELECT A SETTING</Text>
+        </View>
+      )
+  }
 }
 
 export default function SettingsScreen() {
@@ -148,6 +175,11 @@ export default function SettingsScreen() {
         <Text style={styles.sectionHeader}>MANAGE</Text>
         <View style={styles.sectionContent}>
           <SettingsRow
+            label="ZONES"
+            onPress={() => handleSettingPress('zones')}
+            selected={useSplitView && selectedSetting === 'zones'}
+          />
+          <SettingsRow
             label="TABLES"
             onPress={() => handleSettingPress('tables')}
             selected={useSplitView && selectedSetting === 'tables'}
@@ -193,7 +225,7 @@ export default function SettingsScreen() {
 
   if (useSplitView) {
     return (
-      <SafeAreaView style={styles.container} edges={['left', 'right']}>
+      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
         <View style={styles.splitContainer}>
           <View style={styles.menuPane}>
             <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
@@ -234,7 +266,7 @@ const styles = StyleSheet.create({
   },
   detailPane: {
     flex: 1,
-    backgroundColor: Neo.white,
+    backgroundColor: Neo.cream,
   },
   scrollView: {
     flex: 1,
@@ -345,25 +377,6 @@ const styles = StyleSheet.create({
     color: Neo.black,
     opacity: 0.3,
     letterSpacing: 2,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-  },
-  detailContent: {
-    flex: 1,
-    padding: 32,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  detailPlaceholder: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: Neo.black,
-    marginBottom: 8,
-    letterSpacing: 1,
-  },
-  detailSubtext: {
-    fontSize: 12,
-    color: Neo.black,
-    opacity: 0.6,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
 })

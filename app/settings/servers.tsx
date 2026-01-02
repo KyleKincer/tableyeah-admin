@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
-  Animated,
   FlatList,
   Modal,
   Platform,
@@ -15,7 +14,6 @@ import {
   View,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { Swipeable } from 'react-native-gesture-handler'
 import * as Haptics from 'expo-haptics'
 
 import { Neo, NeoBorder, NeoShadow, getContrastText } from '@/constants/theme'
@@ -57,116 +55,60 @@ function ServerColorBadge({ color, name }: { color: string; name: string }) {
   )
 }
 
-interface SwipeAction {
-  label: string
-  color: string
-  textColor?: string
-  onPress: () => void
-}
-
-function SwipeableServerRow({
-  server,
-  onEdit,
-  onToggleActive,
-  onDelete,
-}: {
-  server: Server
-  onEdit: () => void
-  onToggleActive: () => void
-  onDelete: () => void
-}) {
-  const swipeableRef = useRef<Swipeable>(null)
+function ServerRow({ server, onPress }: { server: Server; onPress: () => void }) {
   const [pressed, setPressed] = useState(false)
 
-  const rightActions: SwipeAction[] = [
-    { label: 'EDIT', color: Neo.cyan, onPress: onEdit },
-    {
-      label: server.active ? 'DISABLE' : 'ENABLE',
-      color: server.active ? Neo.orange : Neo.lime,
-      onPress: onToggleActive,
-    },
-    { label: 'DELETE', color: Neo.pink, textColor: Neo.white, onPress: onDelete },
-  ]
-
-  const handleAction = (action: SwipeAction) => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
-    swipeableRef.current?.close()
-    action.onPress()
-  }
-
-  const renderRightActions = (
-    progress: Animated.AnimatedInterpolation<number>,
-    dragX: Animated.AnimatedInterpolation<number>
-  ) => {
-    return (
-      <View style={styles.rightActionsContainer}>
-        {rightActions.map((action, index) => {
-          const scale = dragX.interpolate({
-            inputRange: [-80 * (rightActions.length - index), 0],
-            outputRange: [1, 0.5],
-            extrapolate: 'clamp',
-          })
-
-          return (
-            <Pressable
-              key={action.label}
-              style={[styles.swipeAction, { backgroundColor: action.color }]}
-              onPress={() => handleAction(action)}
-              accessibilityLabel={action.label}
-              accessibilityRole="button"
-            >
-              <Animated.Text
-                style={[
-                  styles.swipeActionText,
-                  { color: action.textColor || Neo.black, transform: [{ scale }] },
-                ]}
-              >
-                {action.label}
-              </Animated.Text>
-            </Pressable>
-          )
-        })}
-      </View>
-    )
-  }
-
   return (
-    <Swipeable
-      ref={swipeableRef}
-      renderRightActions={renderRightActions}
-      rightThreshold={80}
-      friction={2}
-      overshootRight={false}
-      onSwipeableOpen={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)}
+    <Pressable
+      style={[styles.serverRow, pressed && styles.serverRowPressed]}
+      onPress={onPress}
+      onPressIn={() => setPressed(true)}
+      onPressOut={() => setPressed(false)}
+      accessibilityLabel={`${server.name}, ${server.active ? 'active' : 'inactive'}`}
+      accessibilityRole="button"
+      accessibilityHint="Tap to edit"
     >
-      <Pressable
-        style={[styles.serverRow, pressed && styles.serverRowPressed]}
-        onPress={onEdit}
-        onPressIn={() => setPressed(true)}
-        onPressOut={() => setPressed(false)}
-        accessibilityLabel={`${server.name}, ${server.active ? 'active' : 'inactive'}`}
-        accessibilityRole="button"
-        accessibilityHint="Tap to edit, swipe for more options"
-      >
-        <View style={[styles.colorStripe, { backgroundColor: server.color }]} />
-        <ServerColorBadge color={server.color} name={server.name} />
-        <View style={styles.serverInfo}>
-          <Text style={styles.serverName}>{server.name}</Text>
-          {!server.active && (
-            <View style={styles.inactiveBadge}>
-              <Text style={styles.inactiveBadgeText}>INACTIVE</Text>
-            </View>
-          )}
-        </View>
-        <Text style={styles.swipeHint}>← SWIPE</Text>
-      </Pressable>
-    </Swipeable>
+      <View style={[styles.colorStripe, { backgroundColor: server.color }]} />
+      <ServerColorBadge color={server.color} name={server.name} />
+      <View style={styles.serverInfo}>
+        <Text style={styles.serverName}>{server.name}</Text>
+        {!server.active && (
+          <View style={styles.inactiveBadge}>
+            <Text style={styles.inactiveBadgeText}>INACTIVE</Text>
+          </View>
+        )}
+      </View>
+      <Text style={styles.chevron}>→</Text>
+    </Pressable>
   )
 }
 
 interface ServerFormData {
   name: string
   color: string
+  active: boolean
+}
+
+function NeoToggle({
+  value,
+  onToggle,
+}: {
+  value: boolean
+  onToggle: (newValue: boolean) => void
+}) {
+  return (
+    <Pressable
+      style={[styles.toggleTrack, value ? styles.toggleTrackOn : styles.toggleTrackOff]}
+      onPress={() => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+        onToggle(!value)
+      }}
+      accessibilityRole="switch"
+      accessibilityState={{ checked: value }}
+    >
+      <View style={[styles.toggleKnob, value ? styles.toggleKnobOn : styles.toggleKnobOff]} />
+    </Pressable>
+  )
 }
 
 function ServerModal({
@@ -174,21 +116,26 @@ function ServerModal({
   server,
   onClose,
   onSave,
+  onDelete,
   isSaving,
+  isDeleting,
 }: {
   visible: boolean
   server: Server | null
   onClose: () => void
   onSave: (data: ServerFormData) => void
+  onDelete: () => void
   isSaving: boolean
+  isDeleting: boolean
 }) {
   const [name, setName] = useState(server?.name || '')
   const [color, setColor] = useState(server?.color || SERVER_COLORS[0])
+  const [active, setActive] = useState(server?.active ?? true)
 
-  // Reset form when modal opens
   const handleClose = () => {
     setName(server?.name || '')
     setColor(server?.color || SERVER_COLORS[0])
+    setActive(server?.active ?? true)
     onClose()
   }
 
@@ -197,7 +144,22 @@ function ServerModal({
       Alert.alert('Error', 'Please enter a server name')
       return
     }
-    onSave({ name: name.trim(), color })
+    onSave({ name: name.trim(), color, active })
+  }
+
+  const handleDelete = () => {
+    Alert.alert(
+      'DELETE SERVER',
+      `Permanently delete ${server?.name}? This cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'DELETE',
+          style: 'destructive',
+          onPress: onDelete,
+        },
+      ]
+    )
   }
 
   // Reset form when modal opens or server changes
@@ -205,6 +167,7 @@ function ServerModal({
     if (visible) {
       setName(server?.name || '')
       setColor(server?.color || SERVER_COLORS[0])
+      setActive(server?.active ?? true)
     }
   }, [visible, server])
 
@@ -251,7 +214,7 @@ function ServerModal({
               placeholder="Enter server name"
               placeholderTextColor={Neo.black + '40'}
               autoCapitalize="words"
-              autoFocus
+              autoFocus={!server}
             />
           </View>
 
@@ -284,6 +247,18 @@ function ServerModal({
             </View>
           </View>
 
+          {server && (
+            <View style={styles.formSection}>
+              <View style={styles.toggleRow}>
+                <View style={styles.toggleInfo}>
+                  <Text style={styles.toggleLabel}>Active</Text>
+                  <Text style={styles.toggleDescription}>Server is available for assignment</Text>
+                </View>
+                <NeoToggle value={active} onToggle={setActive} />
+              </View>
+            </View>
+          )}
+
           <View style={styles.previewSection}>
             <Text style={styles.formLabel}>PREVIEW</Text>
             <View style={styles.previewContainer}>
@@ -291,6 +266,25 @@ function ServerModal({
               <Text style={styles.previewName}>{name || 'Server Name'}</Text>
             </View>
           </View>
+
+          {/* Delete button - only for existing servers */}
+          {server && (
+            <View style={styles.dangerSection}>
+              <Pressable
+                style={styles.deleteButton}
+                onPress={handleDelete}
+                disabled={isDeleting}
+                accessibilityLabel="Delete server"
+                accessibilityRole="button"
+              >
+                <Text style={styles.deleteButtonText}>
+                  {isDeleting ? 'DELETING...' : 'DELETE SERVER'}
+                </Text>
+              </Pressable>
+            </View>
+          )}
+
+          <View style={styles.bottomPadding} />
         </ScrollView>
       </SafeAreaView>
     </Modal>
@@ -320,7 +314,8 @@ function FAB({ onPress }: { onPress: () => void }) {
   )
 }
 
-export default function ServersScreen() {
+// Exported content component for use in split view
+export function ServersSettingsContent() {
   const { data, isLoading, refetch } = useServers()
   const [refreshing, setRefreshing] = useState(false)
   const [modalVisible, setModalVisible] = useState(false)
@@ -331,6 +326,7 @@ export default function ServersScreen() {
   const deleteMutation = useDeleteServer()
 
   const isSaving = createMutation.isPending || updateMutation.isPending
+  const isDeleting = deleteMutation.isPending
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true)
@@ -356,101 +352,64 @@ export default function ServersScreen() {
     setModalVisible(true)
   }
 
-  const handleToggleActive = (server: Server) => {
-    const action = server.active ? 'disable' : 'enable'
-    Alert.alert(
-      `${action.toUpperCase()} SERVER`,
-      `${action === 'disable' ? 'Disable' : 'Enable'} ${server.name}?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: action.toUpperCase(),
-          onPress: () => {
-            updateMutation.mutate(
-              { id: server.id, active: !server.active },
-              {
-                onSuccess: () => {
-                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
-                },
-                onError: (error: any) => {
-                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
-                  Alert.alert('Error', error?.message || `Failed to ${action} server`)
-                },
-              }
-            )
-          },
-        },
-      ]
-    )
-  }
+  const handleDelete = async () => {
+    if (!editingServer) return
 
-  const handleDelete = (server: Server) => {
-    Alert.alert(
-      'DELETE SERVER',
-      `Permanently delete ${server.name}? This cannot be undone.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'DELETE',
-          style: 'destructive',
-          onPress: () => {
-            deleteMutation.mutate(server.id, {
-              onSuccess: () => {
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
-              },
-              onError: (error: any) => {
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
-                Alert.alert('Error', error?.message || 'Failed to delete server')
-              },
-            })
-          },
-        },
-      ]
-    )
-  }
-
-  const handleSave = (formData: ServerFormData) => {
-    if (editingServer) {
-      // Update existing server
-      updateMutation.mutate(
-        { id: editingServer.id, name: formData.name, color: formData.color },
-        {
-          onSuccess: () => {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
-            setModalVisible(false)
-            setEditingServer(null)
-          },
-          onError: (error: any) => {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
-            Alert.alert('Error', error?.message || 'Failed to update server')
-          },
-        }
-      )
-    } else {
-      // Create new server
-      createMutation.mutate(formData, {
-        onSuccess: () => {
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
-          setModalVisible(false)
-        },
-        onError: (error: any) => {
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
-          Alert.alert('Error', error?.message || 'Failed to create server')
-        },
-      })
+    try {
+      await deleteMutation.mutateAsync(editingServer.id)
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+      setModalVisible(false)
+      setEditingServer(null)
+    } catch (error: any) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
+      Alert.alert('Error', error?.message || 'Failed to delete server')
     }
   }
 
-  return (
-    <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
-      {isLoading && !data ? (
-        <View style={styles.centered}>
-          <View style={styles.loadingCard}>
-            <ActivityIndicator size="large" color={Neo.black} />
-            <Text style={styles.loadingText}>LOADING...</Text>
-          </View>
+  const handleSave = async (formData: ServerFormData) => {
+    if (editingServer) {
+      // Update existing server
+      try {
+        await updateMutation.mutateAsync({
+          id: editingServer.id,
+          name: formData.name,
+          color: formData.color,
+          active: formData.active,
+        })
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+        setModalVisible(false)
+        setEditingServer(null)
+      } catch (error: any) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
+        Alert.alert('Error', error?.message || 'Failed to update server')
+      }
+    } else {
+      // Create new server
+      try {
+        await createMutation.mutateAsync({ name: formData.name, color: formData.color })
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+        setModalVisible(false)
+      } catch (error: any) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
+        Alert.alert('Error', error?.message || 'Failed to create server')
+      }
+    }
+  }
+
+  if (isLoading && !data) {
+    return (
+      <View style={styles.centered}>
+        <View style={styles.loadingCard}>
+          <ActivityIndicator size="large" color={Neo.black} />
+          <Text style={styles.loadingText}>LOADING...</Text>
         </View>
-      ) : sortedServers.length === 0 ? (
+      </View>
+    )
+  }
+
+  return (
+    <View style={styles.contentContainer}>
+      {sortedServers.length === 0 ? (
         <ScrollView
           contentContainerStyle={styles.emptyState}
           refreshControl={
@@ -479,12 +438,7 @@ export default function ServersScreen() {
           data={sortedServers}
           keyExtractor={(item) => item.id.toString()}
           renderItem={({ item }) => (
-            <SwipeableServerRow
-              server={item}
-              onEdit={() => handleEdit(item)}
-              onToggleActive={() => handleToggleActive(item)}
-              onDelete={() => handleDelete(item)}
-            />
+            <ServerRow server={item} onPress={() => handleEdit(item)} />
           )}
           contentContainerStyle={styles.listContent}
           refreshControl={
@@ -507,14 +461,29 @@ export default function ServersScreen() {
           setEditingServer(null)
         }}
         onSave={handleSave}
+        onDelete={handleDelete}
         isSaving={isSaving}
+        isDeleting={isDeleting}
       />
+    </View>
+  )
+}
+
+// Screen wrapper for standalone navigation
+export default function ServersScreen() {
+  return (
+    <SafeAreaView style={styles.container} edges={['bottom']}>
+      <ServersSettingsContent />
     </SafeAreaView>
   )
 }
 
 const styles = StyleSheet.create({
   container: {
+    flex: 1,
+    backgroundColor: Neo.cream,
+  },
+  contentContainer: {
     flex: 1,
     backgroundColor: Neo.cream,
   },
@@ -589,31 +558,11 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
-  swipeHint: {
-    fontSize: 8,
-    fontWeight: '600',
-    color: Neo.black,
-    opacity: 0.3,
-    marginRight: 12,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-  },
-  rightActionsContainer: {
-    flexDirection: 'row',
-  },
-  swipeAction: {
-    width: 72,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: NeoBorder.thin,
-    borderColor: Neo.black,
-    borderLeftWidth: 0,
-  },
-  swipeActionText: {
-    fontSize: 9,
+  chevron: {
+    fontSize: 18,
     fontWeight: '900',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    color: Neo.black,
+    marginRight: 16,
   },
   emptyState: {
     flex: 1,
@@ -779,6 +728,51 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '900',
   },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  toggleInfo: {
+    flex: 1,
+    marginRight: 16,
+  },
+  toggleLabel: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: Neo.black,
+    marginBottom: 2,
+  },
+  toggleDescription: {
+    fontSize: 12,
+    color: Neo.black + '60',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  toggleTrack: {
+    width: 52,
+    height: 32,
+    borderWidth: NeoBorder.thin,
+    borderColor: Neo.black,
+    justifyContent: 'center',
+    padding: 3,
+  },
+  toggleTrackOn: {
+    backgroundColor: Neo.lime,
+  },
+  toggleTrackOff: {
+    backgroundColor: Neo.white,
+  },
+  toggleKnob: {
+    width: 24,
+    height: 24,
+    backgroundColor: Neo.black,
+  },
+  toggleKnobOn: {
+    alignSelf: 'flex-end',
+  },
+  toggleKnobOff: {
+    alignSelf: 'flex-start',
+  },
   previewSection: {
     marginTop: 8,
   },
@@ -797,5 +791,28 @@ const styles = StyleSheet.create({
     color: Neo.black,
     textTransform: 'uppercase',
     letterSpacing: -0.5,
+  },
+  dangerSection: {
+    marginTop: 24,
+    paddingTop: 24,
+    borderTopWidth: 1,
+    borderTopColor: Neo.black + '20',
+  },
+  deleteButton: {
+    backgroundColor: Neo.pink,
+    borderWidth: NeoBorder.default,
+    borderColor: Neo.black,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  deleteButtonText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: Neo.white,
+    letterSpacing: 1,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  bottomPadding: {
+    height: 40,
   },
 })

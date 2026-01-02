@@ -16,7 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
 
 import { Neo, NeoBorder, NeoShadow, getContrastText } from '@/constants/theme'
-import { useTables, useZones } from '@/lib/api/queries'
+import { useTables, useZonesData } from '@/lib/api/queries'
 import { useCreateTable, useUpdateTable, useDeleteTable } from '@/lib/api/mutations'
 import type { TableInfo, TableShape, Zone } from '@/lib/types'
 
@@ -335,9 +335,10 @@ function TableModal({
   )
 }
 
-export default function TablesScreen() {
+// Exported content component for use in split view
+export function TablesSettingsContent() {
   const { data: tablesData, isLoading: isLoadingTables, refetch: refetchTables, isRefetching } = useTables()
-  const { data: zonesData, isLoading: isLoadingZones } = useZones()
+  const { data: zonesData, isLoading: isLoadingZones } = useZonesData()
 
   const createTable = useCreateTable()
   const updateTable = useUpdateTable()
@@ -459,16 +460,14 @@ export default function TablesScreen() {
 
   if (isLoadingTables || isLoadingZones) {
     return (
-      <SafeAreaView style={styles.container} edges={['bottom']}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={Neo.black} />
-        </View>
-      </SafeAreaView>
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={Neo.black} />
+      </View>
     )
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['bottom']}>
+    <View style={styles.contentContainer}>
       {zones.length === 0 ? (
         <View style={styles.emptyState}>
           <Text style={styles.emptyStateTitle}>NO ZONES</Text>
@@ -538,12 +537,25 @@ export default function TablesScreen() {
         onDelete={editingTable ? handleDelete : undefined}
         isLoading={createTable.isPending || updateTable.isPending}
       />
+    </View>
+  )
+}
+
+// Screen wrapper for standalone navigation
+export default function TablesScreen() {
+  return (
+    <SafeAreaView style={styles.container} edges={['bottom']}>
+      <TablesSettingsContent />
     </SafeAreaView>
   )
 }
 
 const styles = StyleSheet.create({
   container: {
+    flex: 1,
+    backgroundColor: Neo.cream,
+  },
+  contentContainer: {
     flex: 1,
     backgroundColor: Neo.cream,
   },

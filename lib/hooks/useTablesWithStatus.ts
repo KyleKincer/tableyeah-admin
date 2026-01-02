@@ -135,6 +135,9 @@ export function useTablesWithStatus(date: string): UseTablesWithStatusResult {
     refetch: refetchReservations,
   } = useReservations(date)
 
+  // Note: We don't memoize based on time because the component rendering
+  // the table badges has its own forceUpdate interval for turn time display.
+  // The seatedAt values come directly from the reservation data.
   const tablesWithStatus = useMemo(() => {
     if (!tablesData?.tables || !reservationsData?.reservations) {
       return []

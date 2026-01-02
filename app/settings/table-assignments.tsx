@@ -220,7 +220,8 @@ function TableCard({ table, assignedServer, isAssigning, onPress }: TableCardPro
   )
 }
 
-export default function TableAssignmentsScreen() {
+// Exported content component for use in split view
+export function TableAssignmentsSettingsContent() {
   const [selectedDate, setSelectedDate] = useState(new Date())
   const [showDatePicker, setShowDatePicker] = useState(false)
   const [selectedServerId, setSelectedServerId] = useState<number | null>(null)
@@ -305,7 +306,7 @@ export default function TableAssignmentsScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['left', 'right']}>
+    <View style={styles.contentWrapper}>
       <View style={styles.header}>
         <DateSelector
           date={selectedDate}
@@ -437,12 +438,25 @@ export default function TableAssignmentsScreen() {
         onSelect={handleServerPress}
         onClose={() => setShowServerPicker(false)}
       />
+    </View>
+  )
+}
+
+// Screen wrapper for standalone navigation
+export default function TableAssignmentsScreen() {
+  return (
+    <SafeAreaView style={styles.container} edges={['left', 'right']}>
+      <TableAssignmentsSettingsContent />
     </SafeAreaView>
   )
 }
 
 const styles = StyleSheet.create({
   container: {
+    flex: 1,
+    backgroundColor: Neo.cream,
+  },
+  contentWrapper: {
     flex: 1,
     backgroundColor: Neo.cream,
   },
