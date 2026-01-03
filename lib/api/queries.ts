@@ -420,6 +420,7 @@ interface OccupancyTimelineResponse {
   slots: OccupancySlot[]
   peakCovers: number
   totalCovers: number
+  totalCapacity?: number
   openTime: string
   closeTime: string
 }

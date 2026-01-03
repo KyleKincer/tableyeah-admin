@@ -10,12 +10,12 @@ export const SERVICE_END_HOUR = 23 // 11 PM
 export const TOTAL_SERVICE_MINUTES = (SERVICE_END_HOUR - SERVICE_START_HOUR) * 60 // 780 minutes
 
 // Layout dimensions
-export const ROW_HEIGHT = 56
-export const ROW_MIN_HEIGHT = 56
-export const BAR_HEIGHT = 32
-export const BAR_MIN_HEIGHT = 26
+export const ROW_HEIGHT = 52
+export const ROW_MIN_HEIGHT = 52
+export const BAR_HEIGHT = 38
+export const BAR_MIN_HEIGHT = 38
 export const LANE_GAP = 4
-export const ROW_PADDING = 8
+export const ROW_PADDING = 6
 export const TABLE_LABEL_WIDTH = 60
 export const HOUR_MARKER_HEIGHT = 32
 

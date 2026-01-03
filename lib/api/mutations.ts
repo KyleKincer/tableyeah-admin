@@ -1296,7 +1296,7 @@ export function useReassignReservationTable() {
   return useMutation({
     mutationFn: ({ reservationId, tableIds }: { reservationId: number; tableIds: number[] }) =>
       api.put<Reservation>(`/api/admin/reservations/${reservationId}`, {
-        table_ids: tableIds,
+        tableIds, // Backend expects camelCase
       }),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['reservations'] })

@@ -1,9 +1,8 @@
 import { format, addDays, subDays, isToday, addMinutes, differenceInMinutes, parseISO } from 'date-fns'
 import { useRouter } from 'expo-router'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ActivityIndicator,
-  Modal,
   Platform,
   Pressable,
   RefreshControl,
@@ -33,16 +32,21 @@ import { useDeviceType } from '@/lib/hooks/useDeviceType'
 import { useTablesWithStatus } from '@/lib/hooks/useTablesWithStatus'
 import { DatePicker } from '@/components/ui/DatePicker'
 import { FloorPlanCanvas } from '@/components/service/FloorPlanCanvas'
+import { SkiaFloorPlanView } from '@/components/service/floor-plan-skia'
 import { SeatingProgressBar } from '@/components/reservation/SeatingProgressBar'
 import { WalkInSheet, generateWalkInName } from '@/components/service/WalkInSheet'
 import { SeatWaitlistSheet } from '@/components/service/SeatWaitlistSheet'
-import { ServerAssignmentSheet } from '@/components/service/ServerAssignmentSheet'
 import { SelectionActionBar } from '@/components/service/SelectionActionBar'
 import { DragProvider, DraggableRow } from '@/components/dnd'
 import { TimelineView } from '@/components/service/TimelineView'
+import { SkiaTimelineView } from '@/components/service/timeline-skia'
 import { useServiceStore } from '@/lib/store/service'
 import type { Reservation, ReservationStatus, WaitlistEntry, TableWithStatus } from '@/lib/types'
 import type { DragPayload } from '@/lib/store/drag'
+
+// Feature flags for Skia-based rendering (GPU-accelerated)
+const USE_SKIA_TIMELINE = true
+const USE_SKIA_FLOOR_PLAN = true
 
 type ViewMode = 'floor' | 'timeline' | 'list' | 'waitlist'
 type ListPaneTab = 'arrivals' | 'waitlist'
@@ -339,26 +343,22 @@ function ServiceHeader({
   waitlistCount,
   viewMode,
   isTablet,
-  useSplitLayout,
   onDateChange,
   onOpenPicker,
   onToggleLive,
   onWalkIn,
   onViewModeChange,
-  onServerAssignmentsPress,
 }: {
   date: Date
   isLive: boolean
   waitlistCount: number
   viewMode: ViewMode
   isTablet: boolean
-  useSplitLayout: boolean
   onDateChange: (date: Date) => void
   onOpenPicker: () => void
   onToggleLive: () => void
   onWalkIn: () => void
   onViewModeChange: (mode: ViewMode) => void
-  onServerAssignmentsPress: () => void
 }) {
   const [currentTime, setCurrentTime] = useState(new Date())
   const [prevPressed, setPrevPressed] = useState(false)
@@ -366,7 +366,6 @@ function ServiceHeader({
   const [datePressed, setDatePressed] = useState(false)
   const [livePressed, setLivePressed] = useState(false)
   const [walkInPressed, setWalkInPressed] = useState(false)
-  const [serversPressed, setServersPressed] = useState(false)
 
   // Update time every second when in live mode
   useEffect(() => {
@@ -454,7 +453,26 @@ function ServiceHeader({
                   viewMode === 'list' && styles.viewToggleTextActive,
                 ]}
               >
-                ARRIVALS
+                LIST
+              </Text>
+            </Pressable>
+            <Pressable
+              style={[
+                styles.viewToggleButton,
+                viewMode === 'timeline' && styles.viewToggleButtonActive,
+              ]}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+                onViewModeChange('timeline')
+              }}
+            >
+              <Text
+                style={[
+                  styles.viewToggleText,
+                  viewMode === 'timeline' && styles.viewToggleTextActive,
+                ]}
+              >
+                TIMELINE
               </Text>
             </Pressable>
             <Pressable
@@ -615,19 +633,6 @@ function ServiceHeader({
           </Pressable>
         </View>
 
-        {/* Servers button */}
-        <Pressable
-          style={[styles.serversButton, serversPressed && styles.buttonPressed]}
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-            onServerAssignmentsPress()
-          }}
-          onPressIn={() => setServersPressed(true)}
-          onPressOut={() => setServersPressed(false)}
-        >
-          <Text style={styles.serversButtonText}>SERVERS</Text>
-        </Pressable>
-
         {/* Walk-in button */}
         <Pressable
           style={[styles.walkInButton, walkInPressed && styles.buttonPressed]}
@@ -664,7 +669,6 @@ export default function ServiceScreen() {
   const [walkInTableNumber, setWalkInTableNumber] = useState<string | undefined>(undefined)
   const [listPaneTab, setListPaneTab] = useState<ListPaneTab>('arrivals')
   const [selectedWaitlistEntry, setSelectedWaitlistEntry] = useState<WaitlistEntry | null>(null)
-  const [showServerAssignments, setShowServerAssignments] = useState(false)
   // Server painting mode state
   const [isServerPaintModeActive, setIsServerPaintModeActive] = useState(false)
   const [selectedPaintServerId, setSelectedPaintServerId] = useState<number | null>(null)
@@ -725,9 +729,9 @@ export default function ServiceScreen() {
   }, [refetch, refetchTables])
 
   // Set correct initial viewMode based on device type
-  // Floor and Timeline views are tablet-only
+  // Floor view is tablet-only, Timeline works on both phones and tablets
   useEffect(() => {
-    if (!isTablet && (viewMode === 'floor' || viewMode === 'timeline')) {
+    if (!isTablet && viewMode === 'floor') {
       setViewMode('list')
     }
   }, [isTablet, viewMode])
@@ -1032,27 +1036,20 @@ export default function ServiceScreen() {
     }
   }
 
-  const handleSaveServerAssignments = async (
-    assignments: { tableId: number; serverId: number | null }[]
-  ) => {
-    try {
-      await setServerAssignmentsMutation.mutateAsync({
-        date: dateString,
-        assignments,
-      })
-      setShowServerAssignments(false)
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
-    } catch (error) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
+  // Handle server selection from the pill - activates paint mode if selecting, keeps mode if switching
+  const handleSelectPaintServer = (serverId: number | null) => {
+    if (serverId !== null) {
+      // Selecting a server - activate paint mode if not already active
+      if (!isServerPaintModeActive) {
+        exitWalkInMode() // Exit any other modes
+        setIsServerPaintModeActive(true)
+        setPendingServerPaintAssignments({})
+      }
+      setSelectedPaintServerId(serverId)
+    } else {
+      // Deselecting server - just clear the selection, keep mode active for re-selection
+      setSelectedPaintServerId(null)
     }
-  }
-
-  // Server painting mode handlers
-  const handleEnterServerPaintMode = () => {
-    exitWalkInMode() // Exit any other modes
-    setIsServerPaintModeActive(true)
-    setSelectedPaintServerId(null)
-    setPendingServerPaintAssignments({})
   }
 
   const handleToggleTableServerPaint = (tableId: number) => {
@@ -1120,15 +1117,6 @@ export default function ServiceScreen() {
     setIsServerPaintModeActive(false)
     setSelectedPaintServerId(null)
     setPendingServerPaintAssignments({})
-  }
-
-  // Handle server button - opens paint mode on floor plan, sheet on list view
-  const handleServerButtonPress = () => {
-    if (showFloorPlan) {
-      handleEnterServerPaintMode()
-    } else {
-      setShowServerAssignments(true)
-    }
   }
 
   // Determine the effective mode for floor plan
@@ -1237,44 +1225,71 @@ export default function ServiceScreen() {
         waitlistCount={waitlistCount}
         viewMode={viewMode}
         isTablet={isTablet}
-        useSplitLayout={useSplitLayout}
         onDateChange={handleDateChange}
         onOpenPicker={() => setShowDatePicker(true)}
         onToggleLive={handleToggleLive}
         onWalkIn={() => handleWalkIn()}
         onViewModeChange={setViewMode}
-        onServerAssignmentsPress={handleServerButtonPress}
       />
 
       {useSplitLayout ? (
         <View style={styles.splitContainer}>
           <View style={styles.floorPlanPane}>
-            <FloorPlanCanvas
-              tables={tablesWithStatus}
-              elements={floorElementsData?.elements}
-              selectedTableId={selectedTableId}
-              onTablePress={handleTablePress}
-              onTableLongPress={handleTableLongPress}
-              onBackgroundPress={clearSelection}
-              serverAssignments={serverAssignmentsData?.assignmentsByTable}
-              mode={effectiveFloorPlanMode}
-              walkInPartySize={walkInPartySize}
-              onCancelMode={
-                isServerPaintModeActive
-                  ? handleCancelServerPaintMode
-                  : selectedWaitlistEntry
-                    ? handleCancelWaitlistSeating
-                    : exitWalkInMode
-              }
-              servers={serversData?.servers}
-              selectedServerId={selectedPaintServerId}
-              pendingServerAssignments={pendingServerPaintAssignments}
-              onSelectServer={setSelectedPaintServerId}
-              onToggleTableServer={handleToggleTableServerPaint}
-              onSaveServerAssignments={handleSaveServerPaintAssignments}
-              waitlistEntry={selectedWaitlistEntry}
-              onSeatWaitlistAtTable={handleSeatWaitlistAtTableFromFloorPlan}
-            />
+            {USE_SKIA_FLOOR_PLAN ? (
+              <SkiaFloorPlanView
+                tables={tablesWithStatus}
+                elements={floorElementsData?.elements}
+                selectedTableId={selectedTableId}
+                onTablePress={handleTablePress}
+                onTableLongPress={handleTableLongPress}
+                onBackgroundPress={clearSelection}
+                serverAssignments={serverAssignmentsData?.assignmentsByTable}
+                mode={effectiveFloorPlanMode}
+                walkInPartySize={walkInPartySize}
+                onCancelMode={
+                  isServerPaintModeActive
+                    ? handleCancelServerPaintMode
+                    : selectedWaitlistEntry
+                      ? handleCancelWaitlistSeating
+                      : exitWalkInMode
+                }
+                servers={serversData?.servers}
+                selectedServerId={selectedPaintServerId}
+                pendingServerAssignments={pendingServerPaintAssignments}
+                onSelectServer={handleSelectPaintServer}
+                onToggleTableServer={handleToggleTableServerPaint}
+                onSaveServerAssignments={handleSaveServerPaintAssignments}
+                waitlistEntry={selectedWaitlistEntry}
+                onSeatWaitlistAtTable={handleSeatWaitlistAtTableFromFloorPlan}
+              />
+            ) : (
+              <FloorPlanCanvas
+                tables={tablesWithStatus}
+                elements={floorElementsData?.elements}
+                selectedTableId={selectedTableId}
+                onTablePress={handleTablePress}
+                onTableLongPress={handleTableLongPress}
+                onBackgroundPress={clearSelection}
+                serverAssignments={serverAssignmentsData?.assignmentsByTable}
+                mode={effectiveFloorPlanMode}
+                walkInPartySize={walkInPartySize}
+                onCancelMode={
+                  isServerPaintModeActive
+                    ? handleCancelServerPaintMode
+                    : selectedWaitlistEntry
+                      ? handleCancelWaitlistSeating
+                      : exitWalkInMode
+                }
+                servers={serversData?.servers}
+                selectedServerId={selectedPaintServerId}
+                pendingServerAssignments={pendingServerPaintAssignments}
+                onSelectServer={handleSelectPaintServer}
+                onToggleTableServer={handleToggleTableServerPaint}
+                onSaveServerAssignments={handleSaveServerPaintAssignments}
+                waitlistEntry={selectedWaitlistEntry}
+                onSeatWaitlistAtTable={handleSeatWaitlistAtTableFromFloorPlan}
+              />
+            )}
           </View>
           <View style={styles.listPane}>
             <ListPaneTabs
@@ -1321,42 +1336,83 @@ export default function ServiceScreen() {
           </View>
         </View>
       ) : showFloorPlan ? (
-        <FloorPlanCanvas
-          tables={tablesWithStatus}
-          elements={floorElementsData?.elements}
-          selectedTableId={selectedTableId}
-          onTablePress={handleTablePress}
-          onTableLongPress={handleTableLongPress}
-          onBackgroundPress={clearSelection}
-          serverAssignments={serverAssignmentsData?.assignmentsByTable}
-          mode={effectiveFloorPlanMode}
-          walkInPartySize={walkInPartySize}
-          onCancelMode={
-            isServerPaintModeActive
-              ? handleCancelServerPaintMode
-              : selectedWaitlistEntry
-                ? handleCancelWaitlistSeating
-                : exitWalkInMode
-          }
-          servers={serversData?.servers}
-          selectedServerId={selectedPaintServerId}
-          pendingServerAssignments={pendingServerPaintAssignments}
-          onSelectServer={setSelectedPaintServerId}
-          onToggleTableServer={handleToggleTableServerPaint}
-          onSaveServerAssignments={handleSaveServerPaintAssignments}
-          waitlistEntry={selectedWaitlistEntry}
-          onSeatWaitlistAtTable={handleSeatWaitlistAtTableFromFloorPlan}
-        />
+        USE_SKIA_FLOOR_PLAN ? (
+          <SkiaFloorPlanView
+            tables={tablesWithStatus}
+            elements={floorElementsData?.elements}
+            selectedTableId={selectedTableId}
+            onTablePress={handleTablePress}
+            onTableLongPress={handleTableLongPress}
+            onBackgroundPress={clearSelection}
+            serverAssignments={serverAssignmentsData?.assignmentsByTable}
+            mode={effectiveFloorPlanMode}
+            walkInPartySize={walkInPartySize}
+            onCancelMode={
+              isServerPaintModeActive
+                ? handleCancelServerPaintMode
+                : selectedWaitlistEntry
+                  ? handleCancelWaitlistSeating
+                  : exitWalkInMode
+            }
+            servers={serversData?.servers}
+            selectedServerId={selectedPaintServerId}
+            pendingServerAssignments={pendingServerPaintAssignments}
+            onSelectServer={handleSelectPaintServer}
+            onToggleTableServer={handleToggleTableServerPaint}
+            onSaveServerAssignments={handleSaveServerPaintAssignments}
+            waitlistEntry={selectedWaitlistEntry}
+            onSeatWaitlistAtTable={handleSeatWaitlistAtTableFromFloorPlan}
+          />
+        ) : (
+          <FloorPlanCanvas
+            tables={tablesWithStatus}
+            elements={floorElementsData?.elements}
+            selectedTableId={selectedTableId}
+            onTablePress={handleTablePress}
+            onTableLongPress={handleTableLongPress}
+            onBackgroundPress={clearSelection}
+            serverAssignments={serverAssignmentsData?.assignmentsByTable}
+            mode={effectiveFloorPlanMode}
+            walkInPartySize={walkInPartySize}
+            onCancelMode={
+              isServerPaintModeActive
+                ? handleCancelServerPaintMode
+                : selectedWaitlistEntry
+                  ? handleCancelWaitlistSeating
+                  : exitWalkInMode
+            }
+            servers={serversData?.servers}
+            selectedServerId={selectedPaintServerId}
+            pendingServerAssignments={pendingServerPaintAssignments}
+            onSelectServer={handleSelectPaintServer}
+            onToggleTableServer={handleToggleTableServerPaint}
+            onSaveServerAssignments={handleSaveServerPaintAssignments}
+            waitlistEntry={selectedWaitlistEntry}
+            onSeatWaitlistAtTable={handleSeatWaitlistAtTableFromFloorPlan}
+          />
+        )
       ) : viewMode === 'timeline' ? (
-        <TimelineView
-          date={dateString}
-          reservations={reservations}
-          tables={tablesWithStatus}
-          seatingSettings={null}
-          isLiveMode={isLiveMode}
-          selectedReservationId={selectedReservation?.id || null}
-          onReservationPress={handleReservationPress}
-        />
+        USE_SKIA_TIMELINE ? (
+          <SkiaTimelineView
+            date={dateString}
+            reservations={reservations}
+            tables={tablesWithStatus}
+            seatingSettings={null}
+            isLiveMode={isLiveMode}
+            selectedReservationId={selectedReservation?.id || null}
+            onReservationPress={handleReservationPress}
+          />
+        ) : (
+          <TimelineView
+            date={dateString}
+            reservations={reservations}
+            tables={tablesWithStatus}
+            seatingSettings={null}
+            isLiveMode={isLiveMode}
+            selectedReservationId={selectedReservation?.id || null}
+            onReservationPress={handleReservationPress}
+          />
+        )
       ) : viewMode === 'waitlist' ? (
         /* Phone waitlist view */
         <ScrollView
@@ -1420,17 +1476,6 @@ export default function ServiceScreen() {
         onClose={() => setSelectedWaitlistEntry(null)}
         onSeat={handleSeatWaitlistEntry}
         isLoading={seatWaitlistMutation.isPending}
-      />
-
-      {/* Server Assignment Sheet */}
-      <ServerAssignmentSheet
-        visible={showServerAssignments}
-        servers={serversData?.servers || []}
-        tables={tablesWithStatus}
-        currentAssignments={serverAssignmentsData?.assignmentsByTable || {}}
-        onClose={() => setShowServerAssignments(false)}
-        onSave={handleSaveServerAssignments}
-        isLoading={setServerAssignmentsMutation.isPending}
       />
 
       {/* Selection Action Bar */}
@@ -1618,35 +1663,6 @@ const styles = StyleSheet.create({
   viewToggleTextActive: {
     color: Neo.white,
   },
-  waitlistBadge: {
-    backgroundColor: Neo.purple,
-    borderWidth: NeoBorder.thin,
-    borderColor: Neo.black,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  waitlistBadgeText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: Neo.white,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    letterSpacing: 0.5,
-  },
-  serversButton: {
-    backgroundColor: Neo.white,
-    borderWidth: NeoBorder.thin,
-    borderColor: Neo.black,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    ...NeoShadow.sm,
-  },
-  serversButtonText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: Neo.black,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    letterSpacing: 0.5,
-  },
   walkInButton: {
     backgroundColor: Neo.lime,
     borderWidth: NeoBorder.thin,
@@ -1661,16 +1677,6 @@ const styles = StyleSheet.create({
     color: Neo.black,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     letterSpacing: 0.5,
-  },
-  dateSelector: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    gap: 12,
-    borderTopWidth: NeoBorder.thin,
-    borderTopColor: Neo.black + '30',
   },
   dateSelectorInline: {
     flexDirection: 'row',
@@ -1703,16 +1709,6 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 6,
   },
-  dateButton: {
-    width: 44,
-    height: 44,
-    backgroundColor: Neo.white,
-    borderWidth: NeoBorder.thin,
-    borderColor: Neo.black,
-    justifyContent: 'center',
-    alignItems: 'center',
-    ...NeoShadow.sm,
-  },
   dateButtonPressed: {
     ...NeoShadow.pressed,
     transform: [{ translateX: 1 }, { translateY: 1 }],
@@ -1721,16 +1717,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '900',
     color: Neo.black,
-  },
-  dateDisplay: {
-    minWidth: 140,
-    alignItems: 'center',
-    backgroundColor: Neo.yellow,
-    borderWidth: NeoBorder.thin,
-    borderColor: Neo.black,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    ...NeoShadow.sm,
   },
   dateDisplayPressed: {
     ...NeoShadow.pressed,
@@ -1907,89 +1893,6 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     opacity: 0.4,
     marginTop: 16,
-  },
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
-  },
-  waitlistPanel: {
-    backgroundColor: Neo.white,
-    borderTopWidth: NeoBorder.default,
-    borderTopColor: Neo.black,
-    maxHeight: '60%',
-  },
-  waitlistHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: NeoBorder.thin,
-    borderBottomColor: Neo.black,
-  },
-  waitlistTitle: {
-    fontSize: 18,
-    fontWeight: '900',
-    color: Neo.black,
-    letterSpacing: -0.5,
-  },
-  waitlistCloseButton: {
-    width: 36,
-    height: 36,
-    backgroundColor: Neo.white,
-    borderWidth: NeoBorder.thin,
-    borderColor: Neo.black,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  waitlistCloseButtonText: {
-    fontSize: 24,
-    fontWeight: '900',
-    color: Neo.black,
-    marginTop: -2,
-  },
-  waitlistList: {
-    padding: 16,
-  },
-  waitlistRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: Neo.white,
-    borderWidth: NeoBorder.thin,
-    borderColor: Neo.black,
-    padding: 12,
-    marginBottom: 8,
-    ...NeoShadow.sm,
-  },
-  waitlistStatusBadge: {
-    backgroundColor: Neo.purple,
-    borderWidth: 1,
-    borderColor: Neo.black,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  waitlistStatusNotified: {
-    backgroundColor: Neo.orange,
-  },
-  waitlistStatusText: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: Neo.white,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    letterSpacing: 0.5,
-  },
-  waitlistEmpty: {
-    padding: 24,
-    alignItems: 'center',
-  },
-  waitlistEmptyText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: Neo.black,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    opacity: 0.6,
   },
   // List pane tabs for tablet split layout
   listPaneTabs: {
