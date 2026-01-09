@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "tableyeah-admin",
-    "slug": "tableyeah-admin",
+    "slug": "tableyeah",
     "version": "1.0.0",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
@@ -46,6 +46,13 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "6f653a5f-7626-4e94-a3ef-eea13eccf819"
+      }
+    },
+    "owner": "kylekincer"
   }
 }
