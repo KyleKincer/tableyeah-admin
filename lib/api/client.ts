@@ -58,6 +58,34 @@ export function useApiClient() {
     return apiRequest<T>(endpoint, options, token, slug)
   }
 
+  // Special request for FormData (file uploads) - doesn't set Content-Type header
+  const formDataRequest = async <T>(endpoint: string, formData: FormData): Promise<T> => {
+    const token = await getToken()
+    if (!token) {
+      throw new ApiError('Not authenticated', 401)
+    }
+    if (!slug) {
+      throw new ApiError('No restaurant selected', 400)
+    }
+
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'x-restaurant-slug': slug,
+        // Don't set Content-Type - let fetch set it with boundary for multipart/form-data
+      },
+      body: formData,
+    })
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Request failed' }))
+      throw new ApiError(error.error || `HTTP ${response.status}`, response.status)
+    }
+
+    return response.json()
+  }
+
   return {
     get: <T>(endpoint: string) => request<T>(endpoint, { method: 'GET' }),
 
@@ -66,6 +94,8 @@ export function useApiClient() {
         method: 'POST',
         body: body ? JSON.stringify(body) : undefined,
       }),
+
+    postFormData: <T>(endpoint: string, formData: FormData) => formDataRequest<T>(endpoint, formData),
 
     put: <T>(endpoint: string, body?: unknown) =>
       request<T>(endpoint, {

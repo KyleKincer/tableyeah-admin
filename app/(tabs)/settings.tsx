@@ -18,8 +18,11 @@ import { ServersSettingsContent } from '@/app/settings/servers'
 import { TableAssignmentsSettingsContent } from '@/app/settings/table-assignments'
 import { GuestTagsSettingsContent } from '@/app/settings/guest-tags'
 import { ZonesSettingsContent } from '@/app/settings/zones'
+import { TeamSettingsContent } from '@/app/settings/team'
+import { BrandingSettingsContent } from '@/app/settings/branding'
+import { BillingSettingsContent } from '@/app/settings/billing'
 
-type SettingScreen = 'general' | 'reservations' | 'hours' | 'notifications' | 'tables' | 'servers' | 'table-assignments' | 'guest-tags' | 'zones' | null
+type SettingScreen = 'general' | 'reservations' | 'hours' | 'notifications' | 'tables' | 'servers' | 'table-assignments' | 'guest-tags' | 'zones' | 'team' | 'branding' | 'billing' | null
 
 function SettingsRow({
   label,
@@ -85,6 +88,12 @@ function DetailPane({ screen }: { screen: SettingScreen }) {
       return <GuestTagsSettingsContent />
     case 'zones':
       return <ZonesSettingsContent />
+    case 'team':
+      return <TeamSettingsContent />
+    case 'branding':
+      return <BrandingSettingsContent />
+    case 'billing':
+      return <BillingSettingsContent />
     default:
       return (
         <View style={styles.emptyDetail}>
@@ -141,6 +150,11 @@ export default function SettingsScreen() {
           <SettingsRow label="NAME" value={restaurant.name || '—'} />
           <SettingsRow label="ROLE" value={restaurant.role || '—'} />
           <SettingsRow label="ORG" value={restaurant.organizationName || '—'} />
+          <SettingsRow
+            label="BRANDING"
+            onPress={() => handleSettingPress('branding')}
+            selected={useSplitView && selectedSetting === 'branding'}
+          />
           <SettingsRow label="SWITCH RESTAURANT" onPress={handleSwitchRestaurant} />
         </View>
       </View>
@@ -175,6 +189,11 @@ export default function SettingsScreen() {
         <Text style={styles.sectionHeader}>MANAGE</Text>
         <View style={styles.sectionContent}>
           <SettingsRow
+            label="TEAM"
+            onPress={() => handleSettingPress('team')}
+            selected={useSplitView && selectedSetting === 'team'}
+          />
+          <SettingsRow
             label="ZONES"
             onPress={() => handleSettingPress('zones')}
             selected={useSplitView && selectedSetting === 'zones'}
@@ -208,6 +227,11 @@ export default function SettingsScreen() {
           <SettingsRow
             label="EMAIL"
             value={user?.primaryEmailAddress?.emailAddress || '—'}
+          />
+          <SettingsRow
+            label="BILLING"
+            onPress={() => handleSettingPress('billing')}
+            selected={useSplitView && selectedSetting === 'billing'}
           />
           <SettingsRow label="SIGN OUT" onPress={handleSignOut} destructive />
         </View>

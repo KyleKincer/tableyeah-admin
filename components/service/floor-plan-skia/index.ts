@@ -8,4 +8,6 @@ export type {
   FloorPlanStats,
   TransformState,
   ServerAssignmentRecord,
+  SkiaFloorPlanViewRef,
+  SkiaFloorPlanCanvasRef,
 } from './types'

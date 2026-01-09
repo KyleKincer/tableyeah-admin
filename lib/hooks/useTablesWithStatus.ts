@@ -43,6 +43,9 @@ function computeTableStatuses(
           notes: seatedRes.notes || null,
           seatedAt: seatedRes.seated_at || null,
           status: seatedRes.status,
+          guestImageUrl: seatedRes.guest?.imageUrl || null,
+          tags: seatedRes.tags || null,
+          guestTags: seatedRes.guest?.tags || null,
         },
       }
     }
@@ -69,6 +72,9 @@ function computeTableStatuses(
           notes: nextRes.notes || null,
           seatedAt: null,
           status: nextRes.status,
+          guestImageUrl: nextRes.guest?.imageUrl || null,
+          tags: nextRes.tags || null,
+          guestTags: nextRes.guest?.tags || null,
         },
         upcomingReservations: upcomingRes.map((r) => ({
           id: r.id,

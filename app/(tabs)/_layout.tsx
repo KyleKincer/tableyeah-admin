@@ -7,6 +7,7 @@ import { IconSymbol } from '@/components/ui/icon-symbol'
 import { Neo, NeoBorder } from '@/constants/theme'
 import { useRestaurantStore } from '@/lib/store/restaurant'
 import { useRealtimeInvalidation, useRealtimeContext } from '@/lib/realtime'
+import { useDeviceType } from '@/lib/hooks/useDeviceType'
 
 function ConnectionStatusDot() {
   const { status } = useRealtimeContext()
@@ -32,6 +33,7 @@ function ConnectionStatusDot() {
 export default function TabLayout() {
   const restaurantName = useRestaurantStore((state) => state.name)
   const insets = useSafeAreaInsets()
+  const { isTablet } = useDeviceType()
 
   // Subscribe to realtime events and invalidate React Query caches
   useRealtimeInvalidation()
@@ -74,9 +76,11 @@ export default function TabLayout() {
         },
       }}
     >
+      {/* Home - tablet only (phone accesses via More menu) */}
       <Tabs.Screen
         name="index"
         options={{
+          href: isTablet ? '/(tabs)' : null,
           title: 'Home',
           headerTitle: restaurantName || 'Dashboard',
           headerRight: () => <ConnectionStatusDot />,
@@ -104,21 +108,36 @@ export default function TabLayout() {
           ),
         }}
       />
+      {/* Waitlist - phone only (tablet accesses via More menu) */}
       <Tabs.Screen
         name="waitlist"
         options={{
+          href: isTablet ? null : '/(tabs)/waitlist',
           title: 'Waitlist',
           tabBarIcon: ({ color }) => (
             <TabIcon name="list.clipboard" color={color} />
           ),
         }}
       />
+      {/* Events - hidden, accessed via More menu */}
       <Tabs.Screen
         name="events"
         options={{
+          href: null,
           title: 'Events',
           tabBarIcon: ({ color }) => (
             <TabIcon name="star.fill" color={color} />
+          ),
+        }}
+      />
+      {/* Commerce - hidden, accessed via More menu */}
+      <Tabs.Screen
+        name="commerce"
+        options={{
+          href: null,
+          title: 'Commerce',
+          tabBarIcon: ({ color }) => (
+            <TabIcon name="cart.fill" color={color} />
           ),
         }}
       />
@@ -131,12 +150,24 @@ export default function TabLayout() {
           ),
         }}
       />
+      {/* Settings - hidden, accessed via More menu */}
       <Tabs.Screen
         name="settings"
         options={{
+          href: null,
           title: 'Settings',
           tabBarIcon: ({ color }) => (
             <TabIcon name="gearshape.fill" color={color} />
+          ),
+        }}
+      />
+      {/* More - always visible */}
+      <Tabs.Screen
+        name="more"
+        options={{
+          title: 'More',
+          tabBarIcon: ({ color }) => (
+            <TabIcon name="ellipsis.circle" color={color} />
           ),
         }}
       />

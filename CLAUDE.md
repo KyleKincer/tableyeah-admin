@@ -81,6 +81,29 @@ Always add haptic feedback on press using `expo-haptics`.
 3. **Inputs**: 3px border + monospace font
 4. **Tags/Badges**: 2px border + color bg + uppercase text
 
+### Toggle Switch Pattern (IMPORTANT)
+
+**NEVER use React Native's built-in `<Switch>` component.** Always use the custom `NeoSwitch` component from `@/components/ui/NeoSwitch` for toggle switches.
+
+```typescript
+import { NeoSwitch } from '@/components/ui/NeoSwitch'
+
+<NeoSwitch
+  label="Active"
+  description="Optional description text"
+  value={isActive}
+  onToggle={() => setIsActive(!isActive)}
+  disabled={isPending}
+/>
+```
+
+The NeoSwitch provides:
+- Rectangular track with thin black border (no rounded corners)
+- Black square knob that slides left/right
+- Lime background when on, white when off
+- Haptic feedback on toggle
+- Proper accessibility attributes
+
 ---
 
 ## Architecture

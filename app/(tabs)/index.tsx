@@ -110,18 +110,20 @@ function StatCard({
   value,
   bgColor = Neo.white,
   onPress,
+  isTablet = false,
 }: {
   label: string
   value: number
   bgColor?: string
   onPress?: () => void
+  isTablet?: boolean
 }) {
   const [pressed, setPressed] = useState(false)
 
   if (!onPress) {
     return (
-      <View style={[styles.statCard, { backgroundColor: bgColor }]}>
-        <Text style={styles.statValue}>{value}</Text>
+      <View style={[styles.statCard, isTablet && styles.statCardTablet, { backgroundColor: bgColor }]}>
+        <Text style={[styles.statValue, isTablet && styles.statValueTablet]}>{value}</Text>
         <Text style={styles.statLabel}>{label}</Text>
       </View>
     )
@@ -131,6 +133,7 @@ function StatCard({
     <Pressable
       style={[
         styles.statCard,
+        isTablet && styles.statCardTablet,
         { backgroundColor: bgColor },
         pressed && styles.statCardPressed,
       ]}
@@ -141,7 +144,7 @@ function StatCard({
       accessibilityRole="button"
       accessibilityHint="View reservations"
     >
-      <Text style={styles.statValue}>{value}</Text>
+      <Text style={[styles.statValue, isTablet && styles.statValueTablet]}>{value}</Text>
       <Text style={styles.statLabel}>{label}</Text>
     </Pressable>
   )
@@ -300,7 +303,7 @@ export default function DashboardScreen() {
     <SafeAreaView style={styles.container} edges={['left', 'right']}>
       <ScrollView
         style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, isTablet && styles.scrollContentTablet]}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -309,82 +312,171 @@ export default function DashboardScreen() {
           />
         }
       >
-        {/* Today's Service Overview */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>TODAY'S SERVICE</Text>
-          <Pressable
-            style={styles.todayCard}
-            onPress={handleGoToReservations}
-            accessibilityLabel="View today's reservations"
-            accessibilityRole="button"
-          >
-            <View style={styles.todayHeader}>
-              <Text style={styles.todayCoversValue}>{todayStats.totalCovers}</Text>
-              <Text style={styles.todayCoversLabel}>COVERS TODAY</Text>
-            </View>
-            <View style={styles.todayStatsRow}>
-              <TodayStatCard
-                label="UPCOMING"
-                value={todayStats.upcoming}
-                bgColor={Neo.lime}
-                onPress={handleGoToReservations}
-              />
-              <TodayStatCard
-                label="SEATED"
-                value={todayStats.seated}
-                bgColor={Neo.cyan}
-                onPress={handleGoToReservations}
-              />
-              <TodayStatCard
-                label="DONE"
-                value={todayStats.completed}
-                bgColor={Neo.white}
-                onPress={handleGoToReservations}
-              />
-            </View>
-          </Pressable>
-        </View>
-
-        {/* Activity Stats with Time Range Selector */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>{getRangeLabel(activityRange)}</Text>
-            <View style={styles.rangeSelector}>
-              {TIME_RANGES.map((range) => (
+        {/* Today's Service + Activity Stats (side-by-side on tablet) */}
+        {isTablet ? (
+          <View style={styles.statsRow}>
+            {/* Today's Service - Left */}
+            <View style={styles.statsRowLeft}>
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>TODAY'S SERVICE</Text>
                 <Pressable
-                  key={range.key}
-                  style={[
-                    styles.rangeChip,
-                    activityRange === range.key && styles.rangeChipActive,
-                  ]}
-                  onPress={() => handleRangeChange(range.key)}
-                  accessibilityLabel={`Show activity for ${range.label}`}
+                  style={[styles.todayCard, styles.todayCardTablet]}
+                  onPress={handleGoToReservations}
+                  accessibilityLabel="View today's reservations"
                   accessibilityRole="button"
-                  accessibilityState={{ selected: activityRange === range.key }}
                 >
-                  <Text
-                    style={[
-                      styles.rangeChipText,
-                      activityRange === range.key && styles.rangeChipTextActive,
-                    ]}
-                  >
-                    {range.label}
-                  </Text>
+                  <View style={[styles.todayHeader, styles.todayHeaderTablet]}>
+                    <Text style={[styles.todayCoversValue, styles.todayCoversValueTablet]}>
+                      {todayStats.totalCovers}
+                    </Text>
+                    <Text style={styles.todayCoversLabel}>COVERS TODAY</Text>
+                  </View>
+                  <View style={styles.todayStatsRow}>
+                    <TodayStatCard
+                      label="UPCOMING"
+                      value={todayStats.upcoming}
+                      bgColor={Neo.lime}
+                      onPress={handleGoToReservations}
+                    />
+                    <TodayStatCard
+                      label="SEATED"
+                      value={todayStats.seated}
+                      bgColor={Neo.cyan}
+                      onPress={handleGoToReservations}
+                    />
+                    <TodayStatCard
+                      label="DONE"
+                      value={todayStats.completed}
+                      bgColor={Neo.white}
+                      onPress={handleGoToReservations}
+                    />
+                  </View>
                 </Pressable>
-              ))}
+              </View>
+            </View>
+
+            {/* Activity Stats - Right */}
+            <View style={styles.statsRowRight}>
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>{getRangeLabel(activityRange)}</Text>
+                  <View style={styles.rangeSelector}>
+                    {TIME_RANGES.map((range) => (
+                      <Pressable
+                        key={range.key}
+                        style={[
+                          styles.rangeChip,
+                          activityRange === range.key && styles.rangeChipActive,
+                        ]}
+                        onPress={() => handleRangeChange(range.key)}
+                        accessibilityLabel={`Show activity for ${range.label}`}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: activityRange === range.key }}
+                      >
+                        <Text
+                          style={[
+                            styles.rangeChipText,
+                            activityRange === range.key && styles.rangeChipTextActive,
+                          ]}
+                        >
+                          {range.label}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+                <View style={[
+                  styles.statsGrid,
+                  styles.statsGridTabletCompact,
+                  isRefetchingActivity && styles.statsGridLoading,
+                ]}>
+                  <StatCard label="NEW" value={activityStats.reservations} bgColor={Neo.lime} isTablet />
+                  <StatCard label="SEATED" value={activityStats.seated} bgColor={Neo.cyan} isTablet />
+                  <StatCard label="DONE" value={activityStats.completed} bgColor={Neo.white} isTablet />
+                  <StatCard label="LOST" value={activityStats.cancelled} bgColor={Neo.pink} isTablet />
+                </View>
+              </View>
             </View>
           </View>
-          <View style={[
-            styles.statsGrid,
-            isTablet && styles.statsGridTablet,
-            isRefetchingActivity && styles.statsGridLoading,
-          ]}>
-            <StatCard label="NEW" value={activityStats.reservations} bgColor={Neo.lime} />
-            <StatCard label="SEATED" value={activityStats.seated} bgColor={Neo.cyan} />
-            <StatCard label="DONE" value={activityStats.completed} bgColor={Neo.white} />
-            <StatCard label="LOST" value={activityStats.cancelled} bgColor={Neo.pink} />
-          </View>
-        </View>
+        ) : (
+          <>
+            {/* Today's Service Overview */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>TODAY'S SERVICE</Text>
+              <Pressable
+                style={styles.todayCard}
+                onPress={handleGoToReservations}
+                accessibilityLabel="View today's reservations"
+                accessibilityRole="button"
+              >
+                <View style={styles.todayHeader}>
+                  <Text style={styles.todayCoversValue}>{todayStats.totalCovers}</Text>
+                  <Text style={styles.todayCoversLabel}>COVERS TODAY</Text>
+                </View>
+                <View style={styles.todayStatsRow}>
+                  <TodayStatCard
+                    label="UPCOMING"
+                    value={todayStats.upcoming}
+                    bgColor={Neo.lime}
+                    onPress={handleGoToReservations}
+                  />
+                  <TodayStatCard
+                    label="SEATED"
+                    value={todayStats.seated}
+                    bgColor={Neo.cyan}
+                    onPress={handleGoToReservations}
+                  />
+                  <TodayStatCard
+                    label="DONE"
+                    value={todayStats.completed}
+                    bgColor={Neo.white}
+                    onPress={handleGoToReservations}
+                  />
+                </View>
+              </Pressable>
+            </View>
+
+            {/* Activity Stats with Time Range Selector */}
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>{getRangeLabel(activityRange)}</Text>
+                <View style={styles.rangeSelector}>
+                  {TIME_RANGES.map((range) => (
+                    <Pressable
+                      key={range.key}
+                      style={[
+                        styles.rangeChip,
+                        activityRange === range.key && styles.rangeChipActive,
+                      ]}
+                      onPress={() => handleRangeChange(range.key)}
+                      accessibilityLabel={`Show activity for ${range.label}`}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: activityRange === range.key }}
+                    >
+                      <Text
+                        style={[
+                          styles.rangeChipText,
+                          activityRange === range.key && styles.rangeChipTextActive,
+                        ]}
+                      >
+                        {range.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+              <View style={[
+                styles.statsGrid,
+                isRefetchingActivity && styles.statsGridLoading,
+              ]}>
+                <StatCard label="NEW" value={activityStats.reservations} bgColor={Neo.lime} />
+                <StatCard label="SEATED" value={activityStats.seated} bgColor={Neo.cyan} />
+                <StatCard label="DONE" value={activityStats.completed} bgColor={Neo.white} />
+                <StatCard label="LOST" value={activityStats.cancelled} bgColor={Neo.pink} />
+              </View>
+            </View>
+          </>
+        )}
 
         {/* Recent Activity Feed */}
         <View style={styles.section}>
@@ -402,6 +494,42 @@ export default function DashboardScreen() {
           {items.length === 0 ? (
             <View style={styles.emptyState}>
               <Text style={styles.emptyText}>NO RECENT ACTIVITY</Text>
+            </View>
+          ) : isTablet ? (
+            // Two-column layout for tablet
+            <View style={[styles.activityList, styles.activityListTablet]}>
+              <View style={styles.activityGrid}>
+                <View style={styles.activityColumn}>
+                  {items.slice(0, 8).filter((_, i) => i % 2 === 0).map((item) => (
+                    <ActivityRow
+                      key={item.id}
+                      item={item}
+                      onPress={() => handleActivityPress(item)}
+                    />
+                  ))}
+                </View>
+                <View style={[styles.activityColumn, styles.activityColumnRight]}>
+                  {items.slice(0, 8).filter((_, i) => i % 2 === 1).map((item) => (
+                    <ActivityRow
+                      key={item.id}
+                      item={item}
+                      onPress={() => handleActivityPress(item)}
+                    />
+                  ))}
+                </View>
+              </View>
+              {items.length > 8 && (
+                <Pressable
+                  style={styles.viewMoreRow}
+                  onPress={handleViewAllActivity}
+                  accessibilityLabel={`View ${items.length - 8} more activities`}
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.viewMoreText}>
+                    +{items.length - 8} MORE · TAP TO VIEW ALL
+                  </Text>
+                </Pressable>
+              )}
             </View>
           ) : (
             <View style={styles.activityList}>
@@ -443,6 +571,19 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: 16,
     gap: 24,
+  },
+  scrollContentTablet: {
+    gap: 16,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    gap: 16,
+  },
+  statsRowLeft: {
+    flex: 1,
+  },
+  statsRowRight: {
+    flex: 1,
   },
   centered: {
     flex: 1,
@@ -510,6 +651,9 @@ const styles = StyleSheet.create({
   statsGridTablet: {
     flexWrap: 'nowrap',
   },
+  statsGridTabletCompact: {
+    flexWrap: 'wrap',
+  },
   statsGridLoading: {
     opacity: 0.5,
   },
@@ -540,6 +684,13 @@ const styles = StyleSheet.create({
     ...NeoShadow.pressed,
     transform: [{ translateX: 2 }, { translateY: 2 }],
   },
+  statCardTablet: {
+    padding: 12,
+    minWidth: 0,
+  },
+  statValueTablet: {
+    fontSize: 36,
+  },
   todayCard: {
     backgroundColor: Neo.yellow,
     borderWidth: NeoBorder.default,
@@ -547,15 +698,24 @@ const styles = StyleSheet.create({
     padding: 16,
     ...NeoShadow.default,
   },
+  todayCardTablet: {
+    padding: 12,
+  },
   todayHeader: {
     alignItems: 'center',
     marginBottom: 16,
+  },
+  todayHeaderTablet: {
+    marginBottom: 8,
   },
   todayCoversValue: {
     fontSize: 64,
     fontWeight: '900',
     color: Neo.black,
     letterSpacing: -3,
+  },
+  todayCoversValueTablet: {
+    fontSize: 48,
   },
   todayCoversLabel: {
     fontSize: 12,
@@ -597,6 +757,19 @@ const styles = StyleSheet.create({
     borderColor: Neo.black,
     overflow: 'hidden',
     ...NeoShadow.default,
+  },
+  activityListTablet: {
+    // Container styles for tablet
+  },
+  activityGrid: {
+    flexDirection: 'row',
+  },
+  activityColumn: {
+    flex: 1,
+  },
+  activityColumnRight: {
+    borderLeftWidth: NeoBorder.thin,
+    borderLeftColor: Neo.black,
   },
   activityRow: {
     flexDirection: 'row',

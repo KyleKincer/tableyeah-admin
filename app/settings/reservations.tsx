@@ -147,6 +147,80 @@ function SectionHeader({ title }: { title: string }) {
   )
 }
 
+const CUTOFF_OPTIONS = [
+  { value: 0, label: 'NO CUTOFF' },
+  { value: 60, label: '1 HOUR BEFORE' },
+  { value: 120, label: '2 HOURS BEFORE' },
+  { value: 240, label: '4 HOURS BEFORE' },
+  { value: 1440, label: 'SAME DAY (MIDNIGHT)' },
+  { value: 2880, label: '24 HOURS BEFORE' },
+  { value: 4320, label: '48 HOURS BEFORE' },
+]
+
+function CutoffPicker({
+  value,
+  onChange,
+}: {
+  value: number
+  onChange: (value: number) => void
+}) {
+  const [showPicker, setShowPicker] = useState(false)
+  const currentOption = CUTOFF_OPTIONS.find(o => o.value === value) || CUTOFF_OPTIONS[0]
+
+  return (
+    <View style={styles.cutoffContainer}>
+      <Text style={styles.cutoffLabel}>Booking cutoff</Text>
+      <Pressable
+        style={styles.cutoffButton}
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+          setShowPicker(true)
+        }}
+        accessibilityRole="button"
+        accessibilityLabel="Select booking cutoff time"
+      >
+        <Text style={styles.cutoffButtonText}>{currentOption.label}</Text>
+        <Text style={styles.cutoffChevron}>▼</Text>
+      </Pressable>
+
+      <Modal visible={showPicker} transparent animationType="fade" onRequestClose={() => setShowPicker(false)}>
+        <Pressable style={styles.modalOverlay} onPress={() => setShowPicker(false)}>
+          <View style={styles.pickerContent}>
+            <Text style={styles.pickerTitle}>BOOKING CUTOFF</Text>
+            <Text style={styles.pickerDescription}>
+              Stop accepting bookings this close to reservation time
+            </Text>
+            {CUTOFF_OPTIONS.map((option) => (
+              <Pressable
+                key={option.value}
+                style={[
+                  styles.pickerOption,
+                  option.value === value && styles.pickerOptionSelected,
+                ]}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+                  onChange(option.value)
+                  setShowPicker(false)
+                }}
+              >
+                <Text
+                  style={[
+                    styles.pickerOptionText,
+                    option.value === value && styles.pickerOptionTextSelected,
+                  ]}
+                >
+                  {option.label}
+                </Text>
+                {option.value === value && <Text style={styles.pickerCheck}>✓</Text>}
+              </Pressable>
+            ))}
+          </View>
+        </Pressable>
+      </Modal>
+    </View>
+  )
+}
+
 function BlockedDateRow({
   blockedDate,
   onDelete,
@@ -443,6 +517,32 @@ export function ReservationsSettingsContent() {
                 description="Allow guests to book parties that span multiple tables"
                 value={localSeating.allowMultiTablePublic}
                 onToggle={(v) => updateLocalSeating({ allowMultiTablePublic: v })}
+              />
+            </View>
+          </View>
+        )}
+
+        {/* Online Booking Window */}
+        {localSeating && (
+          <View style={styles.section}>
+            <SectionHeader title="ONLINE BOOKING WINDOW" />
+            <View style={styles.card}>
+              <Text style={styles.cardDescription}>
+                Control when guests can book online
+              </Text>
+              <NumberStepper
+                label="Advance booking"
+                value={localSeating.bookingWindowDays}
+                onChange={(v) => updateLocalSeating({ bookingWindowDays: v })}
+                min={7}
+                max={365}
+                step={7}
+                suffix=" days"
+              />
+              <View style={styles.divider} />
+              <CutoffPicker
+                value={localSeating.bookingCutoffMinutes}
+                onChange={(v) => updateLocalSeating({ bookingCutoffMinutes: v })}
               />
             </View>
           </View>
@@ -836,5 +936,89 @@ const styles = StyleSheet.create({
   },
   bottomPadding: {
     height: 40,
+  },
+  // Cutoff picker styles
+  cutoffContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+  },
+  cutoffLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Neo.black,
+  },
+  cutoffButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Neo.cream,
+    borderWidth: NeoBorder.thin,
+    borderColor: Neo.black,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    minWidth: 160,
+  },
+  cutoffButtonText: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '700',
+    color: Neo.black,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  cutoffChevron: {
+    fontSize: 10,
+    color: Neo.black,
+    marginLeft: 8,
+  },
+  pickerContent: {
+    backgroundColor: Neo.white,
+    borderWidth: NeoBorder.default,
+    borderColor: Neo.black,
+    ...NeoShadow.lg,
+    padding: 20,
+    width: '100%',
+    maxWidth: 320,
+  },
+  pickerTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: Neo.black,
+    letterSpacing: 1,
+    marginBottom: 8,
+  },
+  pickerDescription: {
+    fontSize: 12,
+    color: Neo.black + '60',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    marginBottom: 16,
+  },
+  pickerOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderWidth: NeoBorder.thin,
+    borderColor: Neo.black + '20',
+    marginBottom: 8,
+    backgroundColor: Neo.white,
+  },
+  pickerOptionSelected: {
+    backgroundColor: Neo.lime,
+    borderColor: Neo.black,
+  },
+  pickerOptionText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '600',
+    color: Neo.black,
+  },
+  pickerOptionTextSelected: {
+    fontWeight: '800',
+  },
+  pickerCheck: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: Neo.black,
   },
 })

@@ -120,6 +120,7 @@ export function SelectionActionBar({
 }: SelectionActionBarProps) {
   const insets = useSafeAreaInsets()
   const [pressedAction, setPressedAction] = useState<ActionType | null>(null)
+  const [guestInfoPressed, setGuestInfoPressed] = useState(false)
 
   const isVisible = !!selectedReservation || !!selectedWaitlist
 
@@ -266,57 +267,79 @@ export function SelectionActionBar({
         <Text style={styles.closeButtonText}>×</Text>
       </Pressable>
 
-      {/* Contact and view buttons */}
-      <View style={styles.contactButtons}>
-        {selectedReservation && onViewReservationDetails && (
-          <Pressable
-            style={styles.contactButton}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-              onViewReservationDetails()
-            }}
-            accessibilityLabel="View reservation details"
-            accessibilityRole="button"
-          >
-            <Text style={styles.contactButtonText}>↗</Text>
-          </Pressable>
-        )}
-        {phone && (
-          <Pressable
-            style={styles.contactButton}
-            onPress={handleCall}
-            accessibilityLabel={`Call ${name}`}
-            accessibilityRole="button"
-          >
-            <Text style={styles.contactButtonText}>📞</Text>
-          </Pressable>
-        )}
-        {email && (
-          <Pressable
-            style={styles.contactButton}
-            onPress={handleEmail}
-            accessibilityLabel={`Email ${name}`}
-            accessibilityRole="button"
-          >
-            <Text style={styles.contactButtonText}>✉️</Text>
-          </Pressable>
-        )}
-      </View>
+      {/* Contact buttons - only show if there are contact options */}
+      {(phone || email) && (
+        <View style={styles.contactButtons}>
+          {phone && (
+            <Pressable
+              style={styles.contactButton}
+              onPress={handleCall}
+              accessibilityLabel={`Call ${name}`}
+              accessibilityRole="button"
+            >
+              <Text style={styles.contactButtonText}>📞</Text>
+            </Pressable>
+          )}
+          {email && (
+            <Pressable
+              style={styles.contactButton}
+              onPress={handleEmail}
+              accessibilityLabel={`Email ${name}`}
+              accessibilityRole="button"
+            >
+              <Text style={styles.contactButtonText}>✉️</Text>
+            </Pressable>
+          )}
+        </View>
+      )}
 
-      {/* Context info */}
-      <View style={styles.contextInfo}>
-        <View style={styles.contextRow}>
-          <Text style={styles.guestName} numberOfLines={1}>
-            {name}
-          </Text>
-          <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
+      {/* Tappable context info - tap to view details */}
+      {selectedReservation && onViewReservationDetails ? (
+        <Pressable
+          style={[
+            styles.contextInfoTappable,
+            guestInfoPressed && styles.contextInfoPressed,
+          ]}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+            onViewReservationDetails()
+          }}
+          onPressIn={() => setGuestInfoPressed(true)}
+          onPressOut={() => setGuestInfoPressed(false)}
+          accessibilityLabel={`View details for ${name}`}
+          accessibilityRole="button"
+          accessibilityHint="Opens full reservation details"
+        >
+          <View style={styles.contextInfoContent}>
+            <View style={styles.contextRow}>
+              <Text style={styles.guestName} numberOfLines={1}>
+                {name}
+              </Text>
+              <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
+            </View>
+            <View style={styles.contextDetails}>
+              <Text style={styles.detailText}>{covers} GUESTS</Text>
+              <Text style={styles.detailSeparator}>•</Text>
+              <Text style={styles.detailText}>{formatTime(time)}</Text>
+            </View>
+          </View>
+          <Text style={styles.chevron}>›</Text>
+        </Pressable>
+      ) : (
+        <View style={styles.contextInfo}>
+          <View style={styles.contextRow}>
+            <Text style={styles.guestName} numberOfLines={1}>
+              {name}
+            </Text>
+            <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
+          </View>
+          <View style={styles.contextDetails}>
+            <Text style={styles.detailText}>{covers} GUESTS</Text>
+            <Text style={styles.detailSeparator}>•</Text>
+            <Text style={styles.detailText}>{formatTime(time)}</Text>
+          </View>
         </View>
-        <View style={styles.contextDetails}>
-          <Text style={styles.detailText}>{covers} GUESTS</Text>
-          <Text style={styles.detailSeparator}>•</Text>
-          <Text style={styles.detailText}>{formatTime(time)}</Text>
-        </View>
-      </View>
+      )}
 
       {/* Actions */}
       <View style={styles.actionsContainer}>
@@ -408,6 +431,30 @@ const styles = StyleSheet.create({
   contextInfo: {
     flex: 1,
     minWidth: 0,
+  },
+  contextInfoTappable: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    marginHorizontal: -4,
+    marginVertical: -6,
+  },
+  contextInfoPressed: {
+    backgroundColor: Neo.yellow + '40',
+  },
+  contextInfoContent: {
+    flex: 1,
+    minWidth: 0,
+  },
+  chevron: {
+    fontSize: 24,
+    fontWeight: '400',
+    color: Neo.black,
+    opacity: 0.35,
+    marginLeft: 8,
   },
   contextRow: {
     flexDirection: 'row',

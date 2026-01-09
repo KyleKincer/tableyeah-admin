@@ -1,4 +1,6 @@
 import { create } from 'zustand'
+import { persist, createJSONStorage } from 'zustand/middleware'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 
 export type ServiceMode = 'normal' | 'walk-in' | 'seat-waitlist' | 'server-assignment'
 
@@ -70,115 +72,125 @@ const initialState: ServiceState = {
   pendingServerAssignments: [],
 }
 
-export const useServiceStore = create<ServiceStore>((set, get) => ({
-  ...initialState,
+export const useServiceStore = create<ServiceStore>()(
+  persist(
+    (set, get) => ({
+      ...initialState,
 
-  // View controls
-  setLiveMode: (live) => set({ isLiveMode: live }),
-  setSelectedDate: (date) => set({ selectedDate: date, isLiveMode: false }),
-  setSelectedZone: (zoneId) => set({ selectedZoneId: zoneId }),
+      // View controls
+      setLiveMode: (live) => set({ isLiveMode: live }),
+      setSelectedDate: (date) => set({ selectedDate: date, isLiveMode: false }),
+      setSelectedZone: (zoneId) => set({ selectedZoneId: zoneId }),
 
-  // Selection
-  selectTable: (tableId) =>
-    set({
-      selectedTableId: tableId,
-      selectedReservationUuid: null,
-      selectedWaitlistUuid: null,
-    }),
-  selectReservation: (uuid) =>
-    set({
-      selectedReservationUuid: uuid,
-      selectedTableId: null,
-      selectedWaitlistUuid: null,
-    }),
-  selectWaitlist: (uuid) =>
-    set({
-      selectedWaitlistUuid: uuid,
-      selectedTableId: null,
-      selectedReservationUuid: null,
-    }),
-  clearSelection: () =>
-    set({
-      selectedTableId: null,
-      selectedReservationUuid: null,
-      selectedWaitlistUuid: null,
-    }),
+      // Selection
+      selectTable: (tableId) =>
+        set({
+          selectedTableId: tableId,
+          selectedReservationUuid: null,
+          selectedWaitlistUuid: null,
+        }),
+      selectReservation: (uuid) =>
+        set({
+          selectedReservationUuid: uuid,
+          selectedTableId: null,
+          selectedWaitlistUuid: null,
+        }),
+      selectWaitlist: (uuid) =>
+        set({
+          selectedWaitlistUuid: uuid,
+          selectedTableId: null,
+          selectedReservationUuid: null,
+        }),
+      clearSelection: () =>
+        set({
+          selectedTableId: null,
+          selectedReservationUuid: null,
+          selectedWaitlistUuid: null,
+        }),
 
-  // Walk-in mode
-  enterWalkInMode: (tableId, partySize) =>
-    set({
-      mode: 'walk-in',
-      walkInTableId: tableId ?? null,
-      walkInPartySize: partySize ?? null,
-      selectedReservationUuid: null,
-      selectedWaitlistUuid: null,
-    }),
-  setWalkInPartySize: (size) =>
-    set({
-      walkInPartySize: size,
-    }),
-  exitWalkInMode: () =>
-    set({
-      mode: 'normal',
-      walkInTableId: null,
-      walkInPartySize: null,
-    }),
+      // Walk-in mode
+      enterWalkInMode: (tableId, partySize) =>
+        set({
+          mode: 'walk-in',
+          walkInTableId: tableId ?? null,
+          walkInPartySize: partySize ?? null,
+          selectedReservationUuid: null,
+          selectedWaitlistUuid: null,
+        }),
+      setWalkInPartySize: (size) =>
+        set({
+          walkInPartySize: size,
+        }),
+      exitWalkInMode: () =>
+        set({
+          mode: 'normal',
+          walkInTableId: null,
+          walkInPartySize: null,
+        }),
 
-  // Seat waitlist mode
-  enterSeatWaitlistMode: (entryUuid) =>
-    set({
-      mode: 'seat-waitlist',
-      waitlistEntryUuid: entryUuid,
-      selectedReservationUuid: null,
-      selectedWaitlistUuid: null,
-    }),
-  exitSeatWaitlistMode: () =>
-    set({
-      mode: 'normal',
-      waitlistEntryUuid: null,
-    }),
+      // Seat waitlist mode
+      enterSeatWaitlistMode: (entryUuid) =>
+        set({
+          mode: 'seat-waitlist',
+          waitlistEntryUuid: entryUuid,
+          selectedReservationUuid: null,
+          selectedWaitlistUuid: null,
+        }),
+      exitSeatWaitlistMode: () =>
+        set({
+          mode: 'normal',
+          waitlistEntryUuid: null,
+        }),
 
-  // Server assignment mode
-  enterServerAssignmentMode: (serverId) =>
-    set({
-      mode: 'server-assignment',
-      assigningServerId: serverId,
-      pendingServerAssignments: [],
-      selectedTableId: null,
-      selectedReservationUuid: null,
-      selectedWaitlistUuid: null,
-    }),
-  toggleTableAssignment: (tableId) => {
-    const { pendingServerAssignments, assigningServerId } = get()
-    const existing = pendingServerAssignments.find((a) => a.tableId === tableId)
+      // Server assignment mode
+      enterServerAssignmentMode: (serverId) =>
+        set({
+          mode: 'server-assignment',
+          assigningServerId: serverId,
+          pendingServerAssignments: [],
+          selectedTableId: null,
+          selectedReservationUuid: null,
+          selectedWaitlistUuid: null,
+        }),
+      toggleTableAssignment: (tableId) => {
+        const { pendingServerAssignments, assigningServerId } = get()
+        const existing = pendingServerAssignments.find((a) => a.tableId === tableId)
 
-    if (existing) {
-      // Toggle: if currently assigning this server, unassign; otherwise assign
-      const newAssignments = pendingServerAssignments.filter((a) => a.tableId !== tableId)
-      if (existing.serverId !== assigningServerId) {
-        newAssignments.push({ tableId, serverId: assigningServerId })
-      } else {
-        newAssignments.push({ tableId, serverId: null })
-      }
-      set({ pendingServerAssignments: newAssignments })
-    } else {
-      // New assignment
-      set({
-        pendingServerAssignments: [
-          ...pendingServerAssignments,
-          { tableId, serverId: assigningServerId },
-        ],
-      })
+        if (existing) {
+          // Toggle: if currently assigning this server, unassign; otherwise assign
+          const newAssignments = pendingServerAssignments.filter((a) => a.tableId !== tableId)
+          if (existing.serverId !== assigningServerId) {
+            newAssignments.push({ tableId, serverId: assigningServerId })
+          } else {
+            newAssignments.push({ tableId, serverId: null })
+          }
+          set({ pendingServerAssignments: newAssignments })
+        } else {
+          // New assignment
+          set({
+            pendingServerAssignments: [
+              ...pendingServerAssignments,
+              { tableId, serverId: assigningServerId },
+            ],
+          })
+        }
+      },
+      exitServerAssignmentMode: () =>
+        set({
+          mode: 'normal',
+          assigningServerId: null,
+          pendingServerAssignments: [],
+        }),
+      getPendingAssignments: () => get().pendingServerAssignments,
+
+      // Reset
+      reset: () => set(initialState),
+    }),
+    {
+      name: 'service-zone-storage',
+      storage: createJSONStorage(() => AsyncStorage),
+      // Only persist the zone selection
+      partialize: (state) => ({ selectedZoneId: state.selectedZoneId }),
     }
-  },
-  exitServerAssignmentMode: () =>
-    set({
-      mode: 'normal',
-      assigningServerId: null,
-      pendingServerAssignments: [],
-    }),
-  getPendingAssignments: () => get().pendingServerAssignments,
-
-  // Reset
-  reset: () => set(initialState),
-}))
+  )
+)

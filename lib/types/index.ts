@@ -280,6 +280,9 @@ export interface TableWithStatus extends TableInfo {
     notes: string | null
     seatedAt: string | null
     status: ReservationStatus
+    guestImageUrl: string | null
+    tags: ReservationTag[] | null
+    guestTags: GuestTag[] | null
   }
   upcomingReservations?: {
     id: number
@@ -490,6 +493,8 @@ export interface SeatingSettings {
   turnTimeLarge: number
   maxPartySizePublic: number
   allowMultiTablePublic: boolean
+  bookingWindowDays: number
+  bookingCutoffMinutes: number
 }
 
 // Blocked date
@@ -574,4 +579,334 @@ export interface OperatingHour {
   slotDuration: number // minutes
   capacity: number
   active: boolean
+}
+
+// ============================================
+// Team/Staff Management Types
+// ============================================
+
+export interface StaffMember {
+  id: number
+  clerkUserId: string | null
+  role: StaffRole
+  name: string
+  email: string
+  active: boolean
+  createdAt: string
+  imageUrl: string | null
+  lastSignInAt: number | null
+  status: 'active' | 'pending'
+}
+
+export interface StaffResponse {
+  staff: StaffMember[]
+  pendingInvitations: StaffMember[]
+}
+
+export interface InviteStaffRequest {
+  email: string
+  name?: string
+  role: StaffRole
+}
+
+// ============================================
+// Branding Settings Types
+// ============================================
+
+export interface BrandingAssets {
+  logoUrl: string | null
+  wordmarkUrl: string | null
+  coverImageUrl: string | null
+  faviconUrl: string | null
+  ogImageUrl: string | null
+}
+
+export interface BrandingColors {
+  primaryColor: string
+  accentColor: string
+  isDefault: boolean
+}
+
+export interface BrandingResponse {
+  branding: BrandingAssets
+  colors: BrandingColors
+}
+
+export type BrandingAssetType = 'logo' | 'wordmark' | 'cover' | 'favicon' | 'og'
+
+// ============================================
+// Billing/Subscription Types
+// ============================================
+
+export type BillingStatus =
+  | 'active'
+  | 'trialing'
+  | 'past_due'
+  | 'canceled'
+  | 'unpaid'
+  | 'incomplete'
+
+export interface BillingInfo {
+  stripeCustomerId: string | null
+  status: BillingStatus | null
+  currentPeriodStart: string | null
+  currentPeriodEnd: string | null
+  cancelAtPeriodEnd: boolean
+  paymentMethodBrand: string | null
+  paymentMethodLast4: string | null
+}
+
+export interface BillingPricing {
+  activeLocationCount: number
+  basePriceCents: number
+  addonPriceCents: number
+  additionalLocations: number
+  totalMonthlyCents: number
+  perLocationBillingEnabled: boolean
+  hasOverridePricing: boolean
+}
+
+export interface BillingResponse {
+  restaurant: {
+    billing: BillingInfo
+  }
+  organization: {
+    id: string
+    name: string
+  }
+  pricing: BillingPricing
+}
+
+export interface ConnectStatus {
+  connected: boolean
+  accountId: string | null
+  chargesEnabled: boolean
+  payoutsEnabled: boolean
+  detailsSubmitted: boolean
+  requiresAction: boolean
+  currentlyDue: string[]
+  dashboardUrl: string | null
+  onboardedAt: string | null
+}
+
+// ============================================
+// Commerce Types (Orders, Gift Cards, Products)
+// ============================================
+
+// Order types
+export type OrderStatus = 'PENDING_PAYMENT' | 'PAID' | 'REFUNDED' | 'CANCELLED'
+export type FulfillmentStatus = 'NEW' | 'IN_PROGRESS' | 'READY' | 'COMPLETED'
+
+export interface Order {
+  id: number
+  uuid: string
+  orderNumber: string
+  status: OrderStatus
+  fulfillmentStatus: FulfillmentStatus
+  customerName: string
+  customerEmail: string
+  customerPhone: string | null
+  customerNotes: string | null
+  subtotalCents: number
+  totalCents: number
+  currency: string
+  itemCount: number
+  createdAt: string
+  fulfilledAt: string | null
+  refundedAmountCents: number
+  refundedAt: string | null
+}
+
+export interface OrderItem {
+  id: number
+  nameSnapshot: string
+  variantSnapshot: string | null
+  unitAmountCents: number
+  quantity: number
+  totalCents: number
+  // Gift card specific fields
+  giftCardRecipientEmail: string | null
+  giftCardRecipientName: string | null
+  giftCardMessage: string | null
+  giftCardDeliveryMethod: 'EMAIL' | 'PRINT' | null
+}
+
+export interface OrderDetail extends Order {
+  items: OrderItem[]
+}
+
+export interface OrdersResponse {
+  orders: Order[]
+  count: number
+  limit: number
+  offset: number
+}
+
+// Gift Card types
+export type GiftCardStatus = 'ACTIVE' | 'VOID'
+export type GiftCardTransactionType = 'ISSUE' | 'REDEEM' | 'REDEEM_REVERSAL' | 'ADJUST' | 'VOID'
+export type GiftCardDeliveryMethod = 'EMAIL' | 'PRINT'
+
+export interface GiftCard {
+  id: number
+  uuid: string
+  code: string
+  codeLast4: string
+  initialValueCents: number
+  balanceCents: number
+  currency: string
+  status: GiftCardStatus
+  purchaserEmail: string | null
+  recipientEmail: string | null
+  recipientName: string | null
+  message: string | null
+  deliveryMethod: GiftCardDeliveryMethod
+  deliveredAt: string | null
+  createdAt: string
+  transactionCount: number
+}
+
+export interface GiftCardTransaction {
+  id: number
+  type: GiftCardTransactionType
+  amountCents: number
+  note: string | null
+  createdAt: string
+  createdByStaffId: number | null
+}
+
+export interface GiftCardDetail extends GiftCard {
+  transactions: GiftCardTransaction[]
+  activeHoldsCents: number
+  availableBalance: number
+}
+
+export interface GiftCardsResponse {
+  giftCards: GiftCard[]
+  count: number
+  limit: number
+  offset: number
+  stats: {
+    totalIssuedCents: number
+    outstandingBalanceCents: number
+    activeCount: number
+  }
+}
+
+export interface IssueGiftCardRequest {
+  valueCents: number
+  recipientEmail?: string
+  recipientName?: string
+  message?: string
+  deliveryMethod?: GiftCardDeliveryMethod
+  sendEmail?: boolean
+}
+
+// Product types
+export type ProductType = 'ADDON' | 'MERCH' | 'FOOD' | 'GIFT_CARD'
+
+export interface Product {
+  id: number
+  name: string
+  slug: string
+  description: string | null
+  imageUrl: string | null
+  type: ProductType
+  unitAmountCents: number
+  currency: string
+  inventoryQuantity: number
+  availableInStore: boolean
+  showStockOnStore: boolean
+  active: boolean
+  sortOrder: number
+  variantCount: number
+  totalVariantInventory: number
+  createdAt: string
+}
+
+export interface ProductVariant {
+  id: number
+  productId: number
+  label: string
+  sku: string | null
+  unitAmountCentsOverride: number | null
+  inventoryQuantity: number
+  active: boolean
+  sortOrder: number
+  createdAt: string
+}
+
+export interface ProductImage {
+  id: number
+  productId: number
+  url: string
+  altText: string | null
+  sortOrder: number
+  isPrimary: boolean
+  createdAt: string
+}
+
+export interface ProductDetail extends Product {
+  variants: ProductVariant[]
+  images: ProductImage[]
+  giftCardMinCents: number | null
+  giftCardMaxCents: number | null
+}
+
+export interface ProductsResponse {
+  products: Product[]
+}
+
+export interface CreateProductRequest {
+  name: string
+  description?: string
+  type?: ProductType
+  unitAmountCents?: number
+  currency?: string
+  inventoryQuantity?: number
+  availableInStore?: boolean
+  showStockOnStore?: boolean
+  active?: boolean
+  giftCardMinCents?: number
+  giftCardMaxCents?: number
+}
+
+export interface UpdateProductRequest {
+  id: number
+  name?: string
+  slug?: string
+  description?: string
+  imageUrl?: string | null
+  type?: ProductType
+  unitAmountCents?: number
+  inventoryQuantity?: number
+  availableInStore?: boolean
+  showStockOnStore?: boolean
+  active?: boolean
+  giftCardMinCents?: number
+  giftCardMaxCents?: number
+}
+
+export interface CreateVariantRequest {
+  productId: number
+  label: string
+  sku?: string
+  unitAmountCentsOverride?: number
+  inventoryQuantity?: number
+  active?: boolean
+}
+
+export interface UpdateVariantRequest {
+  id: number
+  label?: string
+  sku?: string
+  unitAmountCentsOverride?: number | null
+  inventoryQuantity?: number
+  active?: boolean
+}
+
+export interface AdjustInventoryRequest {
+  id: number
+  adjustment?: number // positive or negative delta
+  setQuantity?: number // absolute value
 }

@@ -29,6 +29,13 @@ export interface TableHitResult {
   screenY: number
 }
 
+// Result passed to onTableTap callback with screen coordinates
+export interface TableTapResult {
+  table: TableWithStatus
+  screenX: number
+  screenY: number
+}
+
 // Turn time status
 export type TurnTimeStatus = 'green' | 'amber' | 'red'
 
@@ -55,7 +62,7 @@ export interface SkiaFloorPlanCanvasProps {
   transform: TransformState
 
   // Gesture handlers (called from canvas)
-  onTableTap: (table: TableWithStatus) => void
+  onTableTap: (result: TableTapResult) => void
   onTableLongPress: (table: TableWithStatus) => void
   onBackgroundTap: () => void
   onPressIn: (tableId: number) => void
@@ -64,6 +71,12 @@ export interface SkiaFloorPlanCanvasProps {
   // Server assignment mode
   selectedServerId?: number | null
   pendingServerAssignments?: Record<number, ServerAssignmentRecord | null>
+
+  // Highlighted tables (e.g., when reservation selected from list)
+  highlightedTableIds?: number[]
+
+  // Current time for real-time badge updates (passed from parent for live mode)
+  currentTime?: Date
 }
 
 // View props (wrapper component with mode bars)
@@ -71,7 +84,7 @@ export interface SkiaFloorPlanViewProps {
   tables: TableWithStatus[]
   elements?: FloorPlanElement[]
   selectedTableId: number | null
-  onTablePress: (table: TableWithStatus) => void
+  onTablePress: (result: TableTapResult) => void
   onTableLongPress: (table: TableWithStatus) => void
   onBackgroundPress: () => void
   serverAssignments?: Record<number, ServerAssignmentRecord>
@@ -86,6 +99,12 @@ export interface SkiaFloorPlanViewProps {
   onSaveServerAssignments?: () => void
   waitlistEntry?: WaitlistEntry | null
   onSeatWaitlistAtTable?: (tableId: number) => void
+  // Highlighted tables (e.g., when reservation selected from list)
+  highlightedTableIds?: number[]
+  // Current time for real-time badge updates (passed from parent for live mode)
+  currentTime?: Date
+  // Phone mode - show compact stats bar
+  isPhone?: boolean
 }
 
 // Drawing context passed to draw functions
@@ -117,4 +136,16 @@ export interface FloorPlanStats {
   seated: number
   upcoming: number
   seatedCovers: number
+}
+
+// Imperative handle for SkiaFloorPlanCanvas (for auto-zoom)
+export interface SkiaFloorPlanCanvasRef {
+  zoomToTable: (tableId: number, targetScale?: number) => void
+  resetView: () => void
+}
+
+// Imperative handle for SkiaFloorPlanView (forwards to canvas)
+export interface SkiaFloorPlanViewRef {
+  zoomToTable: (tableId: number, targetScale?: number) => void
+  resetView: () => void
 }

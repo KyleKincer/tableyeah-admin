@@ -1,6 +1,6 @@
 import { format, addDays, subDays, isToday, addMinutes, differenceInMinutes, parseISO } from 'date-fns'
 import { useRouter } from 'expo-router'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react'
 import {
   ActivityIndicator,
   Platform,
@@ -16,7 +16,8 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
 
 import { Neo, NeoBorder, NeoShadow, getStatusColor } from '@/constants/theme'
-import { useReservations, useWaitlist, useServerAssignments, useServers, useFloorPlanElements } from '@/lib/api/queries'
+import { useReservations, useWaitlist, useServerAssignments, useServers, useFloorPlanElements, useZonesData } from '@/lib/api/queries'
+import { ZoneDropdown } from '@/components/service/ZoneDropdown'
 import {
   useSeatReservation,
   useConfirmReservation,
@@ -33,15 +34,19 @@ import { useTablesWithStatus } from '@/lib/hooks/useTablesWithStatus'
 import { DatePicker } from '@/components/ui/DatePicker'
 import { FloorPlanCanvas } from '@/components/service/FloorPlanCanvas'
 import { SkiaFloorPlanView } from '@/components/service/floor-plan-skia'
+import type { SkiaFloorPlanViewRef } from '@/components/service/floor-plan-skia'
 import { SeatingProgressBar } from '@/components/reservation/SeatingProgressBar'
 import { WalkInSheet, generateWalkInName } from '@/components/service/WalkInSheet'
 import { SeatWaitlistSheet } from '@/components/service/SeatWaitlistSheet'
 import { SelectionActionBar } from '@/components/service/SelectionActionBar'
+import { TableActionCard } from '@/components/service/TableActionCard'
+import { PhoneTableActionSheet } from '@/components/service/PhoneTableActionSheet'
+import type { TableTapResult } from '@/components/service/floor-plan-skia/types'
 import { DragProvider, DraggableRow } from '@/components/dnd'
 import { TimelineView } from '@/components/service/TimelineView'
 import { SkiaTimelineView } from '@/components/service/timeline-skia'
 import { useServiceStore } from '@/lib/store/service'
-import type { Reservation, ReservationStatus, WaitlistEntry, TableWithStatus } from '@/lib/types'
+import type { Reservation, ReservationStatus, WaitlistEntry, TableWithStatus, Zone, ReservationTag, GuestTag } from '@/lib/types'
 import type { DragPayload } from '@/lib/store/drag'
 
 // Feature flags for Skia-based rendering (GPU-accelerated)
@@ -62,6 +67,7 @@ interface ReservationSection {
 function groupReservationsForService(reservations: Reservation[]): ReservationSection[] {
   const now = new Date()
   const soon = addMinutes(now, 30)
+  const lateThreshold = addMinutes(now, -15) // More than 15 min late = "LATE" section
 
   // Parse time string to Date object for today
   const parseTime = (timeStr: string) => {
@@ -71,10 +77,18 @@ function groupReservationsForService(reservations: Reservation[]): ReservationSe
     return date
   }
 
+  // Late: BOOKED/CONFIRMED reservations past their time by more than 15 min
+  const late = reservations.filter((r) => {
+    if (!['BOOKED', 'CONFIRMED'].includes(r.status)) return false
+    const resTime = parseTime(r.time)
+    return resTime < lateThreshold
+  })
+
+  // Arriving soon: BOOKED/CONFIRMED within -15 to +30 min window
   const arrivingSoon = reservations.filter((r) => {
     if (!['BOOKED', 'CONFIRMED'].includes(r.status)) return false
     const resTime = parseTime(r.time)
-    return resTime <= soon && resTime >= addMinutes(now, -15)
+    return resTime >= lateThreshold && resTime <= soon
   })
 
   const seated = reservations.filter((r) => r.status === 'SEATED')
@@ -90,6 +104,16 @@ function groupReservationsForService(reservations: Reservation[]): ReservationSe
   )
 
   const sections: ReservationSection[] = []
+
+  // Late section first - these need attention!
+  if (late.length > 0) {
+    sections.push({
+      title: `LATE (${late.length})`,
+      key: 'late',
+      data: late.sort((a, b) => a.time.localeCompare(b.time)),
+      color: Neo.pink, // Pink = attention needed
+    })
+  }
 
   if (arrivingSoon.length > 0) {
     sections.push({
@@ -157,13 +181,63 @@ function WalkInBadge() {
   )
 }
 
+// Tag badges for reservation list items
+function TagBadges({ tags, guestTags }: { tags?: ReservationTag[]; guestTags?: GuestTag[] }) {
+  const occasionTags = tags?.filter(t => t.type === 'OCCASION') || []
+  const dietaryTags = tags?.filter(t => t.type === 'DIETARY') || []
+  const displayGuestTags = (guestTags || []).slice(0, 2) // Max 2 guest tags
+
+  if (occasionTags.length === 0 && dietaryTags.length === 0 && displayGuestTags.length === 0) {
+    return null
+  }
+
+  return (
+    <View style={styles.tagRow}>
+      {/* Occasion tags - yellow */}
+      {occasionTags.map((tag, i) => (
+        <View key={`occasion-${i}`} style={[styles.tagBadge, { backgroundColor: Neo.yellow }]}>
+          {tag.icon && <Text style={styles.tagIcon}>{tag.icon}</Text>}
+          <Text style={styles.tagLabel} numberOfLines={1}>{tag.label}</Text>
+        </View>
+      ))}
+      {/* Dietary tags - pink */}
+      {dietaryTags.map((tag, i) => (
+        <View key={`dietary-${i}`} style={[styles.tagBadge, { backgroundColor: Neo.pink }]}>
+          {tag.icon ? (
+            <Text style={styles.tagIcon}>{tag.icon}</Text>
+          ) : (
+            <Text style={[styles.tagIcon, { color: Neo.white }]}>!</Text>
+          )}
+          <Text style={[styles.tagLabel, { color: Neo.white }]} numberOfLines={1}>{tag.label}</Text>
+        </View>
+      ))}
+      {/* Guest tags - custom colors */}
+      {displayGuestTags.map((tag) => (
+        <View
+          key={`guest-${tag.id}`}
+          style={[styles.tagBadge, { backgroundColor: tag.color + '40' }]} // 40 = 25% opacity
+        >
+          {tag.icon && <Text style={styles.tagIcon}>{tag.icon}</Text>}
+          <Text style={styles.tagLabel} numberOfLines={1}>{tag.label}</Text>
+        </View>
+      ))}
+      {/* Show +N more if there are more guest tags */}
+      {(guestTags?.length || 0) > 2 && (
+        <View style={[styles.tagBadge, { backgroundColor: Neo.black + '20' }]}>
+          <Text style={styles.tagLabel}>+{(guestTags?.length || 0) - 2}</Text>
+        </View>
+      )}
+    </View>
+  )
+}
+
 function CompactReservationRow({
   reservation,
   onPress,
   isSelected,
 }: {
   reservation: Reservation
-  onPress: () => void
+  onPress: (position?: { x: number; y: number }) => void
   isSelected?: boolean
 }) {
   const [pressed, setPressed] = useState(false)
@@ -188,7 +262,11 @@ function CompactReservationRow({
         pressed && styles.reservationRowPressed,
         isSelected && styles.reservationRowSelected,
       ]}
-      onPress={onPress}
+      onPress={(event) => {
+        // Pass touch coordinates for action card positioning
+        const { pageX, pageY } = event.nativeEvent
+        onPress({ x: pageX, y: pageY })
+      }}
       onPressIn={() => setPressed(true)}
       onPressOut={() => setPressed(false)}
       accessibilityLabel={`${reservation.name}, ${time}, ${reservation.covers} guests, ${reservation.status}${isWalkIn ? ', walk-in' : ''}`}
@@ -209,6 +287,7 @@ function CompactReservationRow({
             </Text>
             {isWalkIn && <WalkInBadge />}
           </View>
+          <TagBadges tags={reservation.tags} guestTags={reservation.guest?.tags} />
           <Text style={styles.reservationMeta}>
             T{tables}
             {reservation.server && ` · ${reservation.server.name}`}
@@ -343,22 +422,28 @@ function ServiceHeader({
   waitlistCount,
   viewMode,
   isTablet,
+  zones,
+  selectedZoneId,
   onDateChange,
   onOpenPicker,
   onToggleLive,
   onWalkIn,
   onViewModeChange,
+  onSelectZone,
 }: {
   date: Date
   isLive: boolean
   waitlistCount: number
   viewMode: ViewMode
   isTablet: boolean
+  zones: Zone[]
+  selectedZoneId: number | null
   onDateChange: (date: Date) => void
   onOpenPicker: () => void
   onToggleLive: () => void
   onWalkIn: () => void
   onViewModeChange: (mode: ViewMode) => void
+  onSelectZone: (zoneId: number) => void
 }) {
   const [currentTime, setCurrentTime] = useState(new Date())
   const [prevPressed, setPrevPressed] = useState(false)
@@ -440,6 +525,25 @@ function ServiceHeader({
             <Pressable
               style={[
                 styles.viewToggleButton,
+                viewMode === 'floor' && styles.viewToggleButtonActive,
+              ]}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+                onViewModeChange('floor')
+              }}
+            >
+              <Text
+                style={[
+                  styles.viewToggleText,
+                  viewMode === 'floor' && styles.viewToggleTextActive,
+                ]}
+              >
+                FLOOR
+              </Text>
+            </Pressable>
+            <Pressable
+              style={[
+                styles.viewToggleButton,
                 viewMode === 'list' && styles.viewToggleButtonActive,
               ]}
               onPress={() => {
@@ -472,7 +576,7 @@ function ServiceHeader({
                   viewMode === 'timeline' && styles.viewToggleTextActive,
                 ]}
               >
-                TIMELINE
+                TIME
               </Text>
             </Pressable>
             <Pressable
@@ -498,6 +602,14 @@ function ServiceHeader({
           </View>
 
           <View style={styles.headerActionsPhone}>
+            {/* Zone selector for phone */}
+            {zones.length > 1 && selectedZoneId && (
+              <ZoneDropdown
+                zones={zones}
+                selectedZoneId={selectedZoneId}
+                onSelectZone={onSelectZone}
+              />
+            )}
             <Pressable
               style={[styles.walkInButtonCompact, walkInPressed && styles.buttonPressed]}
               onPress={() => {
@@ -571,6 +683,15 @@ function ServiceHeader({
             <Text style={styles.dateButtonText}>{'>'}</Text>
           </Pressable>
         </View>
+
+        {/* Zone selector dropdown */}
+        {zones.length > 1 && selectedZoneId && (
+          <ZoneDropdown
+            zones={zones}
+            selectedZoneId={selectedZoneId}
+            onSelectZone={onSelectZone}
+          />
+        )}
 
         {/* View mode toggle - Tablet: FLOOR/TIMELINE/LIST */}
         <View style={styles.viewToggle}>
@@ -675,6 +796,14 @@ export default function ServiceScreen() {
   const [pendingServerPaintAssignments, setPendingServerPaintAssignments] = useState<
     Record<number, { serverId: number; serverName: string; serverColor: string } | null>
   >({})
+  // Action card anchor position (for floating action card near selection)
+  const [actionCardAnchor, setActionCardAnchor] = useState<{ x: number; y: number } | null>(null)
+  // Current time for real-time badge updates on floor plan
+  const [currentTime, setCurrentTime] = useState<Date>(new Date())
+  // Phone floor plan action sheet visibility
+  const [showPhoneActionSheet, setShowPhoneActionSheet] = useState(false)
+  // Ref for floor plan view (for auto-zoom on phone)
+  const floorPlanRef = useRef<SkiaFloorPlanViewRef>(null)
 
   // Store state
   const {
@@ -682,6 +811,8 @@ export default function ServiceScreen() {
     selectedDate,
     setLiveMode,
     setSelectedDate,
+    selectedZoneId,
+    setSelectedZone,
     mode,
     walkInPartySize,
     enterWalkInMode,
@@ -702,12 +833,39 @@ export default function ServiceScreen() {
   const { data: serverAssignmentsData } = useServerAssignments(dateString)
   const { data: serversData } = useServers()
   const { data: floorElementsData } = useFloorPlanElements()
+  const { data: zonesData } = useZonesData()
   const { tables: tablesWithStatus, refetch: refetchTables } = useTablesWithStatus(dateString)
   const [refreshing, setRefreshing] = useState(false)
 
-  // On iPad, default to floor plan view
-  const showFloorPlan = isTablet && viewMode === 'floor'
-  const showViewToggle = isTablet
+  // Get active zones sorted by sortOrder
+  const zones = useMemo(() => {
+    return (zonesData?.zones || [])
+      .filter(z => z.active)
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+  }, [zonesData?.zones])
+
+  // Get effective zone (persisted selection or default to first)
+  const effectiveZoneId = useMemo(() => {
+    if (selectedZoneId && zones.find(z => z.id === selectedZoneId)) {
+      return selectedZoneId
+    }
+    return zones[0]?.id ?? null
+  }, [selectedZoneId, zones])
+
+  // Filter tables and elements by selected zone
+  const filteredTables = useMemo(() => {
+    if (!effectiveZoneId) return tablesWithStatus
+    return tablesWithStatus.filter(t => t.zone_id === effectiveZoneId)
+  }, [tablesWithStatus, effectiveZoneId])
+
+  const filteredElements = useMemo(() => {
+    if (!effectiveZoneId) return floorElementsData?.elements || []
+    return (floorElementsData?.elements || []).filter(e => e.zone_id === effectiveZoneId)
+  }, [floorElementsData?.elements, effectiveZoneId])
+
+  // Show floor plan when in floor view mode (works on both phone and tablet)
+  const showFloorPlan = viewMode === 'floor'
+  const showViewToggle = true // Always show view toggle
   // Use split layout on iPad in landscape
   const useSplitLayout = isTablet && isLandscape && viewMode === 'floor'
 
@@ -728,13 +886,7 @@ export default function ServiceScreen() {
     setRefreshing(false)
   }, [refetch, refetchTables])
 
-  // Set correct initial viewMode based on device type
-  // Floor view is tablet-only, Timeline works on both phones and tablets
-  useEffect(() => {
-    if (!isTablet && viewMode === 'floor') {
-      setViewMode('list')
-    }
-  }, [isTablet, viewMode])
+  // Floor view now works on both phones and tablets
 
   // Auto-refresh in live mode - refresh both list and floor plan data
   useEffect(() => {
@@ -745,6 +897,15 @@ export default function ServiceScreen() {
     }, 30000)
     return () => clearInterval(interval)
   }, [isLiveMode, refetch, refetchTables])
+
+  // Update current time every second in live mode for real-time badge updates
+  useEffect(() => {
+    if (!isLiveMode) return
+    const interval = setInterval(() => {
+      setCurrentTime(new Date())
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [isLiveMode])
 
   // Reset to today when entering live mode
   const handleToggleLive = () => {
@@ -761,15 +922,35 @@ export default function ServiceScreen() {
     setLiveMode(false)
   }
 
+  const handleZoneChange = useCallback((zoneId: number) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+    setSelectedZone(zoneId)
+    clearSelection()
+  }, [setSelectedZone, clearSelection])
+
   const reservations = data?.reservations || []
   const activeWaitlistEntries = waitlistData?.entries?.filter(
     (e) => e.status === 'WAITING' || e.status === 'NOTIFIED'
   ) || []
   const waitlistCount = activeWaitlistEntries.length
 
+  // Filter reservations by zone for timeline/list views
+  const filteredReservations = useMemo(() => {
+    if (!effectiveZoneId) return reservations
+    return reservations.filter(r => {
+      const resTables = r.table_ids || []
+      // Include reservation if it has no tables (not yet assigned) or any table is in selected zone
+      if (resTables.length === 0) return true
+      return resTables.some(tableId => {
+        const table = tablesWithStatus.find(t => t.id === tableId)
+        return table?.zone_id === effectiveZoneId
+      })
+    })
+  }, [reservations, effectiveZoneId, tablesWithStatus])
+
   const sections = useMemo(
-    () => groupReservationsForService(reservations),
-    [reservations]
+    () => groupReservationsForService(filteredReservations),
+    [filteredReservations]
   )
 
   // Get selected reservation object for action bar
@@ -788,15 +969,40 @@ export default function ServiceScreen() {
     [selectedWaitlistUuid, activeWaitlistEntries]
   )
 
-  // Handle reservation row press
-  const handleReservationPress = (reservation: Reservation) => {
+  // Get selected table for action card (for walk-in seating)
+  const selectedTable = useMemo(
+    () => selectedTableId
+      ? tablesWithStatus.find(t => t.id === selectedTableId) || null
+      : null,
+    [selectedTableId, tablesWithStatus]
+  )
+
+  // Get highlighted table IDs when reservation selected from list (not floor plan)
+  // This visually connects the list selection to tables on the floor plan
+  const highlightedTableIds = useMemo(
+    () => {
+      // Only highlight when selected from list (no anchor = not from floor plan tap)
+      if (selectedReservation && !actionCardAnchor) {
+        return selectedReservation.table_ids || []
+      }
+      return []
+    },
+    [selectedReservation, actionCardAnchor]
+  )
+
+  // Handle reservation row press (from list, not floor plan)
+  const handleReservationPress = (reservation: Reservation, position?: { x: number; y: number }) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
     if (isTablet) {
-      // On tablet, toggle selection for action bar
+      // On tablet, toggle selection - show bottom action bar (not floating card)
+      // Clear any existing floor plan anchor so floating card doesn't show
+      setActionCardAnchor(null)
       if (selectedReservationUuid === reservation.uuid) {
         selectReservation(null)
       } else {
         selectReservation(reservation.uuid)
+        // Note: We intentionally don't set actionCardAnchor here
+        // The SelectionActionBar will show at the bottom instead
       }
     } else {
       // On phone, navigate to detail page (like Reservations tab)
@@ -901,6 +1107,17 @@ export default function ServiceScreen() {
     selectWaitlist(null)
   }
 
+  // Handle walk-in from action card (when tapping available table)
+  const handleSeatWalkInFromActionCard = async (partySize: number) => {
+    if (!selectedTableId) return
+    try {
+      await handleSeatWalkIn(partySize, selectedTableId)
+      handleClearSelection()
+    } catch {
+      // Error handled in handleSeatWalkIn
+    }
+  }
+
   // Action bar handlers for reservations
   const handleConfirmFromActionBar = async () => {
     if (!selectedReservation) return
@@ -998,8 +1215,14 @@ export default function ServiceScreen() {
     setSelectedWaitlistEntry(null)
   }
 
-  const handleCloseActionBar = () => {
+  // Clear selection and action card anchor
+  const handleClearSelection = useCallback(() => {
     clearSelection()
+    setActionCardAnchor(null)
+  }, [clearSelection])
+
+  const handleCloseActionBar = () => {
+    handleClearSelection()
     setSelectedWaitlistEntry(null)
   }
 
@@ -1126,8 +1349,9 @@ export default function ServiceScreen() {
       ? 'seat-waitlist' as const
       : mode
 
-  // Handle table press from floor plan
-  const handleTablePress = (table: TableWithStatus) => {
+  // Handle table press from Skia floor plan (with screen coordinates)
+  const handleTablePress = (result: TableTapResult) => {
+    const { table, screenX, screenY } = result
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
 
     // In walk-in mode, seat the walk-in at this table
@@ -1137,6 +1361,8 @@ export default function ServiceScreen() {
     }
 
     selectTable(table.id)
+    // Store anchor position for floating action card
+    setActionCardAnchor({ x: screenX, y: screenY })
     // If table has a seated reservation, find it and select by uuid
     if (table.currentReservation) {
       const reservation = reservations.find(r => r.id === table.currentReservation!.id)
@@ -1146,6 +1372,52 @@ export default function ServiceScreen() {
     }
   }
 
+  // Legacy handler for non-Skia floor plan (no screen coordinates)
+  const handleTablePressLegacy = (table: TableWithStatus) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+
+    if (mode === 'walk-in' && walkInPartySize && table.status === 'available') {
+      handleSeatWalkInAtTable(table.id)
+      return
+    }
+
+    selectTable(table.id)
+    // No anchor position for legacy canvas - card won't show (will use bottom bar fallback)
+    setActionCardAnchor(null)
+    if (table.currentReservation) {
+      const reservation = reservations.find(r => r.id === table.currentReservation!.id)
+      if (reservation) {
+        selectReservation(reservation.uuid)
+      }
+    }
+  }
+
+  // Phone-specific table press handler - shows bottom sheet instead of floating card
+  const handleTablePressPhone = (result: TableTapResult) => {
+    const { table } = result
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+
+    // In walk-in mode, seat the walk-in at this table
+    if (mode === 'walk-in' && walkInPartySize && table.status === 'available') {
+      handleSeatWalkInAtTable(table.id)
+      return
+    }
+
+    // Auto-zoom to center the tapped table
+    floorPlanRef.current?.zoomToTable(table.id, 1.5)
+
+    selectTable(table.id)
+    // If table has a seated reservation, find it and select by uuid
+    if (table.currentReservation) {
+      const reservation = reservations.find(r => r.id === table.currentReservation!.id)
+      if (reservation) {
+        selectReservation(reservation.uuid)
+      }
+    }
+    // Show phone action sheet
+    setShowPhoneActionSheet(true)
+  }
+
   const handleTableLongPress = (table: TableWithStatus) => {
     if (table.status === 'available') {
       // Open walk-in sheet with this table pre-selected
@@ -1153,6 +1425,12 @@ export default function ServiceScreen() {
     } else if (table.currentReservation) {
       router.push(`/reservation/${table.currentReservation.id}`)
     }
+  }
+
+  // Close phone action sheet and clear selection
+  const handleClosePhoneActionSheet = () => {
+    setShowPhoneActionSheet(false)
+    handleClearSelection()
   }
 
   // List content for both views
@@ -1197,7 +1475,7 @@ export default function ServiceScreen() {
               >
                 <CompactReservationRow
                   reservation={item}
-                  onPress={() => handleReservationPress(item)}
+                  onPress={(pos) => handleReservationPress(item, pos)}
                   isSelected={selectedReservationUuid === item.uuid}
                 />
               </DraggableRow>
@@ -1220,29 +1498,32 @@ export default function ServiceScreen() {
     <DragProvider onDrop={handleDrop} enabled={useSplitLayout}>
       <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
         <ServiceHeader
-        date={selectedDate}
-        isLive={isLiveMode}
-        waitlistCount={waitlistCount}
-        viewMode={viewMode}
-        isTablet={isTablet}
-        onDateChange={handleDateChange}
-        onOpenPicker={() => setShowDatePicker(true)}
-        onToggleLive={handleToggleLive}
-        onWalkIn={() => handleWalkIn()}
-        onViewModeChange={setViewMode}
-      />
+          date={selectedDate}
+          isLive={isLiveMode}
+          waitlistCount={waitlistCount}
+          viewMode={viewMode}
+          isTablet={isTablet}
+          zones={zones}
+          selectedZoneId={effectiveZoneId}
+          onDateChange={handleDateChange}
+          onOpenPicker={() => setShowDatePicker(true)}
+          onToggleLive={handleToggleLive}
+          onWalkIn={() => handleWalkIn()}
+          onViewModeChange={setViewMode}
+          onSelectZone={handleZoneChange}
+        />
 
       {useSplitLayout ? (
         <View style={styles.splitContainer}>
           <View style={styles.floorPlanPane}>
             {USE_SKIA_FLOOR_PLAN ? (
               <SkiaFloorPlanView
-                tables={tablesWithStatus}
-                elements={floorElementsData?.elements}
+                tables={filteredTables}
+                elements={filteredElements}
                 selectedTableId={selectedTableId}
                 onTablePress={handleTablePress}
                 onTableLongPress={handleTableLongPress}
-                onBackgroundPress={clearSelection}
+                onBackgroundPress={handleClearSelection}
                 serverAssignments={serverAssignmentsData?.assignmentsByTable}
                 mode={effectiveFloorPlanMode}
                 walkInPartySize={walkInPartySize}
@@ -1261,15 +1542,17 @@ export default function ServiceScreen() {
                 onSaveServerAssignments={handleSaveServerPaintAssignments}
                 waitlistEntry={selectedWaitlistEntry}
                 onSeatWaitlistAtTable={handleSeatWaitlistAtTableFromFloorPlan}
+                highlightedTableIds={highlightedTableIds}
+                currentTime={isLiveMode ? currentTime : undefined}
               />
             ) : (
               <FloorPlanCanvas
-                tables={tablesWithStatus}
-                elements={floorElementsData?.elements}
+                tables={filteredTables}
+                elements={filteredElements}
                 selectedTableId={selectedTableId}
-                onTablePress={handleTablePress}
+                onTablePress={handleTablePressLegacy}
                 onTableLongPress={handleTableLongPress}
-                onBackgroundPress={clearSelection}
+                onBackgroundPress={handleClearSelection}
                 serverAssignments={serverAssignmentsData?.assignmentsByTable}
                 mode={effectiveFloorPlanMode}
                 walkInPartySize={walkInPartySize}
@@ -1338,12 +1621,16 @@ export default function ServiceScreen() {
       ) : showFloorPlan ? (
         USE_SKIA_FLOOR_PLAN ? (
           <SkiaFloorPlanView
-            tables={tablesWithStatus}
-            elements={floorElementsData?.elements}
+            ref={floorPlanRef}
+            tables={filteredTables}
+            elements={filteredElements}
             selectedTableId={selectedTableId}
-            onTablePress={handleTablePress}
+            onTablePress={isTablet ? handleTablePress : handleTablePressPhone}
             onTableLongPress={handleTableLongPress}
-            onBackgroundPress={clearSelection}
+            onBackgroundPress={() => {
+              handleClearSelection()
+              if (!isTablet) setShowPhoneActionSheet(false)
+            }}
             serverAssignments={serverAssignmentsData?.assignmentsByTable}
             mode={effectiveFloorPlanMode}
             walkInPartySize={walkInPartySize}
@@ -1362,15 +1649,18 @@ export default function ServiceScreen() {
             onSaveServerAssignments={handleSaveServerPaintAssignments}
             waitlistEntry={selectedWaitlistEntry}
             onSeatWaitlistAtTable={handleSeatWaitlistAtTableFromFloorPlan}
+            highlightedTableIds={highlightedTableIds}
+            currentTime={isLiveMode ? currentTime : undefined}
+            isPhone={!isTablet}
           />
         ) : (
           <FloorPlanCanvas
-            tables={tablesWithStatus}
-            elements={floorElementsData?.elements}
+            tables={filteredTables}
+            elements={filteredElements}
             selectedTableId={selectedTableId}
-            onTablePress={handleTablePress}
+            onTablePress={handleTablePressLegacy}
             onTableLongPress={handleTableLongPress}
-            onBackgroundPress={clearSelection}
+            onBackgroundPress={handleClearSelection}
             serverAssignments={serverAssignmentsData?.assignmentsByTable}
             mode={effectiveFloorPlanMode}
             walkInPartySize={walkInPartySize}
@@ -1395,8 +1685,8 @@ export default function ServiceScreen() {
         USE_SKIA_TIMELINE ? (
           <SkiaTimelineView
             date={dateString}
-            reservations={reservations}
-            tables={tablesWithStatus}
+            reservations={filteredReservations}
+            tables={filteredTables}
             seatingSettings={null}
             isLiveMode={isLiveMode}
             selectedReservationId={selectedReservation?.id || null}
@@ -1405,8 +1695,8 @@ export default function ServiceScreen() {
         ) : (
           <TimelineView
             date={dateString}
-            reservations={reservations}
-            tables={tablesWithStatus}
+            reservations={filteredReservations}
+            tables={filteredTables}
             seatingSettings={null}
             isLiveMode={isLiveMode}
             selectedReservationId={selectedReservation?.id || null}
@@ -1478,31 +1768,93 @@ export default function ServiceScreen() {
         isLoading={seatWaitlistMutation.isPending}
       />
 
-      {/* Selection Action Bar */}
-      <SelectionActionBar
-        selectedReservation={selectedReservation}
-        onConfirmReservation={handleConfirmFromActionBar}
-        onSeatReservation={handleSeatFromActionBar}
-        onCompleteReservation={handleCompleteFromActionBar}
-        onCancelReservation={handleCancelFromActionBar}
-        onNoShowReservation={handleNoShowFromActionBar}
-        onUnseatReservation={handleUnseatFromActionBar}
-        onViewReservationDetails={selectedReservation ? () => handleReservationNavigate(selectedReservation) : undefined}
-        selectedWaitlist={selectedWaitlistForActionBar}
-        onSeatWaitlist={handleSeatWaitlistFromActionBar}
-        onNotifyWaitlist={handleNotifyWaitlistFromActionBar}
-        onRemoveWaitlist={handleRemoveWaitlistFromActionBar}
-        onClose={handleCloseActionBar}
-        isLoading={
-          confirmMutation.isPending ||
-          seatMutation.isPending ||
-          completeMutation.isPending ||
-          cancelMutation.isPending ||
-          noShowMutation.isPending ||
-          unseatMutation.isPending ||
-          seatWaitlistMutation.isPending
-        }
-      />
+      {/* Phone Table Action Sheet - for floor plan on phones */}
+      {!isTablet && (
+        <PhoneTableActionSheet
+          visible={showPhoneActionSheet}
+          selectedTable={selectedTable?.status === 'available' ? selectedTable : null}
+          selectedReservation={selectedReservation}
+          selectedWaitlist={null}
+          onConfirmReservation={handleConfirmFromActionBar}
+          onSeatReservation={handleSeatFromActionBar}
+          onCompleteReservation={handleCompleteFromActionBar}
+          onCancelReservation={handleCancelFromActionBar}
+          onNoShowReservation={handleNoShowFromActionBar}
+          onUnseatReservation={handleUnseatFromActionBar}
+          onViewReservationDetails={selectedReservation ? () => handleReservationNavigate(selectedReservation) : undefined}
+          onSeatWalkIn={handleSeatWalkInFromActionCard}
+          onClose={handleClosePhoneActionSheet}
+          isLoading={
+            confirmMutation.isPending ||
+            seatMutation.isPending ||
+            completeMutation.isPending ||
+            cancelMutation.isPending ||
+            noShowMutation.isPending ||
+            unseatMutation.isPending ||
+            createWalkInMutation.isPending
+          }
+        />
+      )}
+
+      {/* Floating Action Card (tablet) - anchored near floor plan table selection */}
+      {isTablet && (
+        <TableActionCard
+          selectedReservation={actionCardAnchor ? selectedReservation : null}
+          onConfirmReservation={handleConfirmFromActionBar}
+          onSeatReservation={handleSeatFromActionBar}
+          onCompleteReservation={handleCompleteFromActionBar}
+          onCancelReservation={handleCancelFromActionBar}
+          onNoShowReservation={handleNoShowFromActionBar}
+          onUnseatReservation={handleUnseatFromActionBar}
+          onViewReservationDetails={selectedReservation ? () => handleReservationNavigate(selectedReservation) : undefined}
+          selectedWaitlist={actionCardAnchor ? selectedWaitlistForActionBar : null}
+          onSeatWaitlist={handleSeatWaitlistFromActionBar}
+          onNotifyWaitlist={handleNotifyWaitlistFromActionBar}
+          onRemoveWaitlist={handleRemoveWaitlistFromActionBar}
+          selectedTable={selectedTable}
+          onSeatWalkIn={handleSeatWalkInFromActionCard}
+          anchorPosition={actionCardAnchor}
+          onClose={handleCloseActionBar}
+          isLoading={
+            confirmMutation.isPending ||
+            seatMutation.isPending ||
+            completeMutation.isPending ||
+            cancelMutation.isPending ||
+            noShowMutation.isPending ||
+            unseatMutation.isPending ||
+            seatWaitlistMutation.isPending ||
+            createWalkInMutation.isPending
+          }
+        />
+      )}
+
+      {/* Bottom Action Bar (tablet) - for list item selections */}
+      {isTablet && !actionCardAnchor && (
+        <SelectionActionBar
+          selectedReservation={selectedReservation}
+          onConfirmReservation={handleConfirmFromActionBar}
+          onSeatReservation={handleSeatFromActionBar}
+          onCompleteReservation={handleCompleteFromActionBar}
+          onCancelReservation={handleCancelFromActionBar}
+          onNoShowReservation={handleNoShowFromActionBar}
+          onUnseatReservation={handleUnseatFromActionBar}
+          onViewReservationDetails={selectedReservation ? () => handleReservationNavigate(selectedReservation) : undefined}
+          selectedWaitlist={selectedWaitlistForActionBar}
+          onSeatWaitlist={handleSeatWaitlistFromActionBar}
+          onNotifyWaitlist={handleNotifyWaitlistFromActionBar}
+          onRemoveWaitlist={handleRemoveWaitlistFromActionBar}
+          onClose={handleCloseActionBar}
+          isLoading={
+            confirmMutation.isPending ||
+            seatMutation.isPending ||
+            completeMutation.isPending ||
+            cancelMutation.isPending ||
+            noShowMutation.isPending ||
+            unseatMutation.isPending ||
+            seatWaitlistMutation.isPending
+          }
+        />
+      )}
       </SafeAreaView>
     </DragProvider>
   )
@@ -1826,6 +2178,33 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     marginTop: 2,
     opacity: 0.7,
+  },
+  // Tag badge styles
+  tagRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+    marginTop: 3,
+    marginBottom: 1,
+  },
+  tagBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderWidth: 1,
+    borderColor: Neo.black,
+    gap: 2,
+  },
+  tagIcon: {
+    fontSize: 10,
+  },
+  tagLabel: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: Neo.black,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    textTransform: 'uppercase',
   },
   statusContainer: {
     alignSelf: 'center',

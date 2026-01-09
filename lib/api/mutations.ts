@@ -23,6 +23,23 @@ import type {
   ZoneGroup,
   ZoneBookingRules,
   ZonePacingRule,
+  StaffRole,
+  InviteStaffRequest,
+  BrandingAssets,
+  BrandingAssetType,
+  // Commerce types
+  FulfillmentStatus,
+  Order,
+  GiftCard,
+  IssueGiftCardRequest,
+  Product,
+  CreateProductRequest,
+  UpdateProductRequest,
+  ProductVariant,
+  CreateVariantRequest,
+  UpdateVariantRequest,
+  AdjustInventoryRequest,
+  ProductImage,
 } from '../types'
 
 export function useSeatReservation() {
@@ -186,6 +203,13 @@ interface UpdateReservationData {
   admin_notes?: string
   tableIds?: number[]
   serverId?: number
+  // Core booking fields
+  name?: string
+  email?: string | null
+  phone?: string | null
+  covers?: number
+  date?: string        // YYYY-MM-DD format
+  time?: string        // HH:mm format
 }
 
 export function useUpdateReservation() {
@@ -1303,6 +1327,455 @@ export function useReassignReservationTable() {
       queryClient.invalidateQueries({ queryKey: ['reservation', variables.reservationId] })
       queryClient.invalidateQueries({ queryKey: ['tables-with-status'] })
       queryClient.invalidateQueries({ queryKey: ['occupancy-timeline'] })
+    },
+  })
+}
+
+// ============================================
+// Team/Staff Management Mutations
+// ============================================
+
+export function useInviteStaff() {
+  const api = useApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (data: InviteStaffRequest) =>
+      api.post<{ success: boolean; staffId: number }>('/api/admin/staff/invite', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['staff'] })
+    },
+  })
+}
+
+export function useUpdateStaffRole() {
+  const api = useApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ id, role }: { id: number; role: StaffRole }) =>
+      api.patch<{ success: boolean }>(`/api/admin/staff/${id}`, { role }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['staff'] })
+    },
+  })
+}
+
+export function useRemoveStaff() {
+  const api = useApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (id: number) =>
+      api.delete<{ success: boolean }>(`/api/admin/staff/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['staff'] })
+    },
+  })
+}
+
+export function useRevokeInvitation() {
+  const api = useApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (id: number) =>
+      api.delete<{ success: boolean }>(`/api/admin/staff/invitations/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['staff'] })
+    },
+  })
+}
+
+// ============================================
+// Branding Settings Mutations
+// ============================================
+
+export function useUpdateBranding() {
+  const api = useApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (data: Partial<BrandingAssets>) =>
+      api.put<{ success: boolean }>('/api/admin/settings/branding', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['branding'] })
+    },
+  })
+}
+
+export function useGenerateBrandColors() {
+  const api = useApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (assetType: BrandingAssetType) =>
+      api.post<{ success: boolean; primaryColor: string; accentColor: string }>(
+        '/api/admin/settings/branding/generate-colors',
+        { assetType }
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['branding'] })
+    },
+  })
+}
+
+export function useUpdateBrandColors() {
+  const api = useApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (data: { primaryColor?: string; accentColor?: string }) =>
+      api.put<{ success: boolean }>('/api/admin/settings/branding/colors', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['branding'] })
+    },
+  })
+}
+
+interface UploadBrandingImageResult {
+  url: string
+}
+
+export function useUploadBrandingImage() {
+  const api = useApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({
+      assetType,
+      uri,
+      mimeType,
+    }: {
+      assetType: BrandingAssetType
+      uri: string
+      mimeType: string
+    }) => {
+      // Create form data for upload
+      const formData = new FormData()
+      formData.append('assetType', assetType)
+      formData.append('file', {
+        uri,
+        type: mimeType,
+        name: `${assetType}.${mimeType.split('/')[1] || 'jpg'}`,
+      } as unknown as Blob)
+
+      return api.postFormData<UploadBrandingImageResult>(
+        '/api/admin/uploads/restaurant-branding/mobile',
+        formData
+      )
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['branding'] })
+    },
+  })
+}
+
+// ============================================
+// Billing/Subscription Mutations
+// ============================================
+
+interface CheckoutResponse {
+  url: string
+}
+
+export function useCreateCheckout() {
+  const api = useApiClient()
+
+  return useMutation({
+    mutationFn: () =>
+      api.post<CheckoutResponse>('/api/billing/checkout', {}),
+  })
+}
+
+interface PortalResponse {
+  url: string
+}
+
+export function useCreatePortalSession() {
+  const api = useApiClient()
+
+  return useMutation({
+    mutationFn: () =>
+      api.post<PortalResponse>('/api/billing/portal', {}),
+  })
+}
+
+interface ConnectOnboardResponse {
+  url: string
+}
+
+export function useStartConnectOnboarding() {
+  const api = useApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: () =>
+      api.post<ConnectOnboardResponse>('/api/connect/onboard', {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['connect-status'] })
+    },
+  })
+}
+
+// ============================================
+// Commerce Mutations (Orders, Gift Cards, Products)
+// ============================================
+
+// Orders
+
+export function useUpdateOrderFulfillment() {
+  const api = useApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ orderId, fulfillmentStatus }: { orderId: number; fulfillmentStatus: FulfillmentStatus }) =>
+      api.put<Order>('/api/admin/orders', { id: orderId, fulfillmentStatus }),
+    onSuccess: (_, { orderId }) => {
+      queryClient.invalidateQueries({ queryKey: ['orders'] })
+      queryClient.invalidateQueries({ queryKey: ['order', orderId] })
+    },
+  })
+}
+
+// Gift Cards
+
+export function useIssueGiftCard() {
+  const api = useApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (data: IssueGiftCardRequest) =>
+      api.post<GiftCard>('/api/admin/gift-cards', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['gift-cards'] })
+    },
+  })
+}
+
+export function useAdjustGiftCardBalance() {
+  const api = useApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ giftCardId, amountCents, note }: { giftCardId: number; amountCents: number; note?: string }) =>
+      api.put<GiftCard>(`/api/admin/gift-cards/${giftCardId}`, {
+        action: 'adjust',
+        amountCents,
+        note,
+      }),
+    onSuccess: (_, { giftCardId }) => {
+      queryClient.invalidateQueries({ queryKey: ['gift-cards'] })
+      queryClient.invalidateQueries({ queryKey: ['gift-card', giftCardId] })
+    },
+  })
+}
+
+export function useVoidGiftCard() {
+  const api = useApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ giftCardId, note }: { giftCardId: number; note?: string }) =>
+      api.put<GiftCard>(`/api/admin/gift-cards/${giftCardId}`, {
+        action: 'void',
+        note,
+      }),
+    onSuccess: (_, { giftCardId }) => {
+      queryClient.invalidateQueries({ queryKey: ['gift-cards'] })
+      queryClient.invalidateQueries({ queryKey: ['gift-card', giftCardId] })
+    },
+  })
+}
+
+// Products
+
+export function useCreateProduct() {
+  const api = useApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (data: CreateProductRequest) =>
+      api.post<Product>('/api/admin/products', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['products'] })
+    },
+  })
+}
+
+export function useUpdateProduct() {
+  const api = useApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (data: UpdateProductRequest) =>
+      api.put<Product>('/api/admin/products', data),
+    onSuccess: (_, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ['products'] })
+      queryClient.invalidateQueries({ queryKey: ['product', id] })
+    },
+  })
+}
+
+export function useDeleteProduct() {
+  const api = useApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (productId: number) =>
+      api.delete<{ success: boolean }>(`/api/admin/products?id=${productId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['products'] })
+    },
+  })
+}
+
+// Product Variants
+
+export function useCreateVariant() {
+  const api = useApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (data: CreateVariantRequest) =>
+      api.post<ProductVariant>('/api/admin/products/variants', data),
+    onSuccess: (_, { productId }) => {
+      queryClient.invalidateQueries({ queryKey: ['products'] })
+      queryClient.invalidateQueries({ queryKey: ['product', productId] })
+      queryClient.invalidateQueries({ queryKey: ['product-variants', productId] })
+    },
+  })
+}
+
+export function useUpdateVariant() {
+  const api = useApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ productId, ...data }: UpdateVariantRequest & { productId: number }) =>
+      api.put<ProductVariant>('/api/admin/products/variants', data),
+    onSuccess: (_, { productId }) => {
+      queryClient.invalidateQueries({ queryKey: ['products'] })
+      queryClient.invalidateQueries({ queryKey: ['product', productId] })
+      queryClient.invalidateQueries({ queryKey: ['product-variants', productId] })
+    },
+  })
+}
+
+export function useDeleteVariant() {
+  const api = useApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ variantId, productId }: { variantId: number; productId: number }) =>
+      api.delete<{ success: boolean }>(`/api/admin/products/variants?id=${variantId}`),
+    onSuccess: (_, { productId }) => {
+      queryClient.invalidateQueries({ queryKey: ['products'] })
+      queryClient.invalidateQueries({ queryKey: ['product', productId] })
+      queryClient.invalidateQueries({ queryKey: ['product-variants', productId] })
+    },
+  })
+}
+
+export function useAdjustInventory() {
+  const api = useApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ productId, ...data }: AdjustInventoryRequest & { productId: number }) =>
+      api.patch<ProductVariant>('/api/admin/products/variants', data),
+    onSuccess: (_, { productId }) => {
+      queryClient.invalidateQueries({ queryKey: ['products'] })
+      queryClient.invalidateQueries({ queryKey: ['product', productId] })
+      queryClient.invalidateQueries({ queryKey: ['product-variants', productId] })
+    },
+  })
+}
+
+// Product Images
+
+interface UploadProductImageResult {
+  image: ProductImage
+}
+
+export function useUploadProductImage() {
+  const api = useApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({
+      productId,
+      uri,
+      mimeType,
+      altText,
+    }: {
+      productId: number
+      uri: string
+      mimeType: string
+      altText?: string
+    }) => {
+      const formData = new FormData()
+      formData.append('productId', productId.toString())
+      formData.append('file', {
+        uri,
+        type: mimeType,
+        name: `product-${productId}-${Date.now()}.${mimeType.split('/')[1] || 'jpg'}`,
+      } as any)
+      if (altText) formData.append('altText', altText)
+
+      return api.postFormData<UploadProductImageResult>(
+        '/api/admin/uploads/product-image/mobile',
+        formData
+      )
+    },
+    onSuccess: (_, { productId }) => {
+      queryClient.invalidateQueries({ queryKey: ['products'] })
+      queryClient.invalidateQueries({ queryKey: ['product', productId] })
+      queryClient.invalidateQueries({ queryKey: ['product-images', productId] })
+    },
+  })
+}
+
+export function useDeleteProductImage() {
+  const api = useApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ imageId, productId }: { imageId: number; productId: number }) =>
+      api.delete<{ success: boolean }>(`/api/admin/products/images?id=${imageId}`),
+    onSuccess: (_, { productId }) => {
+      queryClient.invalidateQueries({ queryKey: ['products'] })
+      queryClient.invalidateQueries({ queryKey: ['product', productId] })
+      queryClient.invalidateQueries({ queryKey: ['product-images', productId] })
+    },
+  })
+}
+
+export function useSetPrimaryImage() {
+  const api = useApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ imageId, productId }: { imageId: number; productId: number }) =>
+      api.put<{ success: boolean }>('/api/admin/products/images', { id: imageId, setAsPrimary: true }),
+    onSuccess: (_, { productId }) => {
+      queryClient.invalidateQueries({ queryKey: ['products'] })
+      queryClient.invalidateQueries({ queryKey: ['product', productId] })
+      queryClient.invalidateQueries({ queryKey: ['product-images', productId] })
+    },
+  })
+}
+
+export function useReorderProductImages() {
+  const api = useApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ productId, imageIds }: { productId: number; imageIds: number[] }) =>
+      api.patch<{ success: boolean }>('/api/admin/products/images', { productId, imageIds }),
+    onSuccess: (_, { productId }) => {
+      queryClient.invalidateQueries({ queryKey: ['product', productId] })
+      queryClient.invalidateQueries({ queryKey: ['product-images', productId] })
     },
   })
 }

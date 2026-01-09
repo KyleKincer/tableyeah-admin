@@ -29,6 +29,19 @@ import type {
   BlockedDate,
   ZonesData,
   OperatingHour,
+  StaffResponse,
+  BrandingResponse,
+  BillingResponse,
+  ConnectStatus,
+  // Commerce types
+  OrdersResponse,
+  OrderDetail,
+  GiftCardsResponse,
+  GiftCardDetail,
+  ProductsResponse,
+  ProductDetail,
+  ProductVariant,
+  ProductImage,
 } from '../types'
 
 interface ActivityResponse {
@@ -435,5 +448,220 @@ export function useOccupancyTimeline(date: string, enabled: boolean = true) {
     staleTime: 1000 * 30, // 30 seconds
     refetchInterval: 60000, // Refresh every minute for live updates
     placeholderData: keepPreviousData,
+  })
+}
+
+// Team/Staff queries
+export function useStaffMembers() {
+  const api = useApiClient()
+
+  return useQuery({
+    queryKey: ['staff'],
+    queryFn: () => api.get<StaffResponse>('/api/admin/staff'),
+    staleTime: 1000 * 60 * 5, // 5 minutes
+  })
+}
+
+// Branding queries
+export function useBranding() {
+  const api = useApiClient()
+
+  return useQuery({
+    queryKey: ['branding'],
+    queryFn: () => api.get<BrandingResponse>('/api/admin/settings/branding'),
+    staleTime: 1000 * 60 * 5, // 5 minutes
+  })
+}
+
+// Billing queries
+export function useBilling() {
+  const api = useApiClient()
+
+  return useQuery({
+    queryKey: ['billing'],
+    queryFn: () => api.get<BillingResponse>('/api/admin/billing'),
+    staleTime: 1000 * 60 * 5, // 5 minutes
+  })
+}
+
+// Stripe Connect status
+export function useConnectStatus() {
+  const api = useApiClient()
+
+  return useQuery({
+    queryKey: ['connect-status'],
+    queryFn: () => api.get<ConnectStatus>('/api/connect/status'),
+    staleTime: 1000 * 60 * 5, // 5 minutes
+  })
+}
+
+// ============================================
+// Commerce Queries (Orders, Gift Cards, Products)
+// ============================================
+
+// Orders
+export function useOrders(params?: {
+  search?: string
+  status?: string
+  fulfillmentStatus?: string
+  limit?: number
+  offset?: number
+}) {
+  const api = useApiClient()
+  const queryParams = new URLSearchParams()
+
+  if (params?.search) queryParams.set('search', params.search)
+  if (params?.status) queryParams.set('status', params.status)
+  if (params?.fulfillmentStatus) queryParams.set('fulfillmentStatus', params.fulfillmentStatus)
+  if (params?.limit) queryParams.set('limit', params.limit.toString())
+  if (params?.offset) queryParams.set('offset', params.offset.toString())
+
+  const queryString = queryParams.toString()
+  const endpoint = `/api/admin/orders${queryString ? `?${queryString}` : ''}`
+
+  return useQuery({
+    queryKey: ['orders', params],
+    queryFn: () => api.get<OrdersResponse>(endpoint),
+    staleTime: 1000 * 60, // 1 minute
+    placeholderData: keepPreviousData,
+  })
+}
+
+interface OrderDetailResponse {
+  order: Omit<OrderDetail, 'items'>
+  items: OrderDetail['items']
+}
+
+export function useOrder(orderId: number | null) {
+  const api = useApiClient()
+
+  return useQuery({
+    queryKey: ['order', orderId],
+    queryFn: async () => {
+      const response = await api.get<OrderDetailResponse>(`/api/admin/orders/${orderId}`)
+      // Transform the response to match OrderDetail type
+      return {
+        ...response.order,
+        items: response.items,
+      } as OrderDetail
+    },
+    enabled: orderId !== null,
+    staleTime: 1000 * 60, // 1 minute
+  })
+}
+
+// Gift Cards
+export function useGiftCards(params?: {
+  search?: string
+  status?: string
+  limit?: number
+  offset?: number
+}) {
+  const api = useApiClient()
+  const queryParams = new URLSearchParams()
+
+  if (params?.search) queryParams.set('search', params.search)
+  if (params?.status) queryParams.set('status', params.status)
+  if (params?.limit) queryParams.set('limit', params.limit.toString())
+  if (params?.offset) queryParams.set('offset', params.offset.toString())
+
+  const queryString = queryParams.toString()
+  const endpoint = `/api/admin/gift-cards${queryString ? `?${queryString}` : ''}`
+
+  return useQuery({
+    queryKey: ['gift-cards', params],
+    queryFn: () => api.get<GiftCardsResponse>(endpoint),
+    staleTime: 1000 * 60, // 1 minute
+    placeholderData: keepPreviousData,
+  })
+}
+
+interface GiftCardDetailResponse {
+  giftCard: Omit<GiftCardDetail, 'transactions' | 'activeHoldsCents'>
+  transactions: GiftCardDetail['transactions']
+  activeHolds: Array<{ amountCents: number }>
+  purchaseOrder: unknown
+}
+
+export function useGiftCard(giftCardId: number | null) {
+  const api = useApiClient()
+
+  return useQuery({
+    queryKey: ['gift-card', giftCardId],
+    queryFn: async () => {
+      const response = await api.get<GiftCardDetailResponse>(`/api/admin/gift-cards/${giftCardId}`)
+      // Transform the response to match GiftCardDetail type
+      const activeHoldsCents = response.activeHolds?.reduce((sum, h) => sum + h.amountCents, 0) || 0
+      return {
+        ...response.giftCard,
+        transactions: response.transactions,
+        activeHoldsCents,
+      } as GiftCardDetail
+    },
+    enabled: giftCardId !== null,
+    staleTime: 1000 * 60, // 1 minute
+  })
+}
+
+// Products
+export function useProducts() {
+  const api = useApiClient()
+
+  return useQuery({
+    queryKey: ['products'],
+    queryFn: () => api.get<ProductsResponse>('/api/admin/products'),
+    staleTime: 1000 * 60 * 5, // 5 minutes
+  })
+}
+
+export function useProduct(productId: number | null) {
+  const api = useApiClient()
+
+  return useQuery({
+    queryKey: ['product', productId],
+    queryFn: async () => {
+      // Fetch products list, variants, and images in parallel
+      const [productsResponse, variantsResponse, imagesResponse] = await Promise.all([
+        api.get<ProductsResponse>('/api/admin/products'),
+        api.get<{ variants: ProductVariant[] }>(`/api/admin/products/variants?productId=${productId}`),
+        api.get<{ images: ProductImage[] }>(`/api/admin/products/images?productId=${productId}`),
+      ])
+
+      // Find the product in the list
+      const product = productsResponse.products.find(p => p.id === productId)
+      if (!product) {
+        throw new Error('Product not found')
+      }
+
+      return {
+        ...product,
+        variants: variantsResponse.variants || [],
+        images: imagesResponse.images || [],
+      } as ProductDetail
+    },
+    enabled: productId !== null,
+    staleTime: 1000 * 60 * 5, // 5 minutes
+  })
+}
+
+export function useProductVariants(productId: number | null) {
+  const api = useApiClient()
+
+  return useQuery({
+    queryKey: ['product-variants', productId],
+    queryFn: () => api.get<{ variants: ProductVariant[] }>(`/api/admin/products/variants?productId=${productId}`),
+    enabled: productId !== null,
+    staleTime: 1000 * 60 * 5, // 5 minutes
+  })
+}
+
+export function useProductImages(productId: number | null) {
+  const api = useApiClient()
+
+  return useQuery({
+    queryKey: ['product-images', productId],
+    queryFn: () => api.get<{ images: ProductImage[] }>(`/api/admin/products/images?productId=${productId}`),
+    enabled: productId !== null,
+    staleTime: 1000 * 60 * 5, // 5 minutes
   })
 }

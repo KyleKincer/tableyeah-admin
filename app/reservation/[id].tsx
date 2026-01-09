@@ -31,7 +31,9 @@ import {
 } from '@/lib/api/mutations'
 import { TablePickerModal } from '@/components/reservation/TablePicker'
 import { NotesEditModal } from '@/components/reservation/NotesEditModal'
+import { ReservationEditModal } from '@/components/reservation/ReservationEditModal'
 import { ServerPickerModal } from '@/components/server/ServerPicker'
+import { useDeviceType } from '@/lib/hooks/useDeviceType'
 import type { ReservationStatus, PaymentStatus } from '@/lib/types'
 
 function InfoRow({ label, value }: { label: string; value: string | null | undefined }) {
@@ -194,9 +196,13 @@ function NeoButton({
 export default function ReservationDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const router = useRouter()
+  const { isTablet, isLandscape } = useDeviceType()
+  const useSplitLayout = isTablet && isLandscape
+
   const [showTablePicker, setShowTablePicker] = useState(false)
   const [showNotesEditor, setShowNotesEditor] = useState(false)
   const [showServerPicker, setShowServerPicker] = useState(false)
+  const [showEditModal, setShowEditModal] = useState(false)
 
   const { data: reservation, isLoading, error } = useReservation(Number(id))
   const seatMutation = useSeatReservation()
@@ -364,6 +370,33 @@ export default function ReservationDetailScreen() {
     )
   }
 
+  const handleSaveReservationDetails = (values: {
+    name: string
+    date: string
+    time: string
+    covers: number
+    email: string | null
+    phone: string | null
+  }) => {
+    updateMutation.mutate(
+      {
+        id: Number(id),
+        name: values.name,
+        date: values.date,
+        time: values.time,
+        covers: values.covers,
+        email: values.email,
+        phone: values.phone,
+      },
+      {
+        onSuccess: () => {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+        },
+        onError: () => Alert.alert('ERROR', 'Failed to update reservation'),
+      }
+    )
+  }
+
   const handleSendPaymentLink = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
     Alert.alert(
@@ -497,30 +530,368 @@ export default function ReservationDetailScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={[]}>
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
-        {/* Header */}
-        <View style={[styles.headerCard, { backgroundColor: statusColor }]}>
-          <View style={styles.headerContent}>
-            <Text style={styles.guestName}>{reservation.name}</Text>
-            <View style={styles.headerBadges}>
-              {isWalkIn && <WalkInBadge />}
-              {isEventReservation && reservation.event_name && (
-                <EventBadge name={reservation.event_name} />
+      {useSplitLayout ? (
+        // Tablet landscape: Split pane layout
+        <View style={styles.splitContainer}>
+          {/* Left pane: Info */}
+          <ScrollView style={styles.leftPane} contentContainerStyle={styles.content}>
+            {/* Header */}
+            <View style={[styles.headerCard, { backgroundColor: statusColor }]}>
+              <View style={styles.headerContent}>
+                <Text style={styles.guestName}>{reservation.name}</Text>
+                <View style={styles.headerBadges}>
+                  {isWalkIn && <WalkInBadge />}
+                  {isEventReservation && reservation.event_name && (
+                    <EventBadge name={reservation.event_name} />
+                  )}
+                </View>
+              </View>
+              <View style={styles.statusBadge}>
+                <Text style={styles.statusText}>{reservation.status}</Text>
+              </View>
+            </View>
+
+            {/* Details */}
+            <View style={styles.card}>
+              <View style={styles.detailsHeader}>
+                <Text style={styles.cardTitle}>DETAILS</Text>
+                {!isFinal && (
+                  <Pressable
+                    style={styles.editDetailsButton}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+                      setShowEditModal(true)
+                    }}
+                  >
+                    <Text style={styles.editDetailsButtonText}>EDIT</Text>
+                  </Pressable>
+                )}
+              </View>
+              <InfoRow label="TIME" value={time} />
+              <InfoRow label="PARTY SIZE" value={`${reservation.covers} guests`} />
+              <View style={styles.tableRow}>
+                <View style={styles.tableInfo}>
+                  <Text style={styles.infoLabel}>TABLE</Text>
+                  <Text style={styles.infoValue}>{tables}</Text>
+                </View>
+                {!isFinal && (
+                  <Pressable
+                    style={styles.editTableButton}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+                      setShowTablePicker(true)
+                    }}
+                  >
+                    <Text style={styles.editTableButtonText}>EDIT</Text>
+                  </Pressable>
+                )}
+              </View>
+              <InfoRow label="EMAIL" value={reservation.email} />
+              <InfoRow label="PHONE" value={reservation.phone} />
+              <View style={styles.serverRow}>
+                <View style={styles.serverInfo}>
+                  <Text style={styles.infoLabel}>SERVER</Text>
+                  {reservation.server ? (
+                    <View style={styles.serverBadgeDisplay}>
+                      <View
+                        style={[styles.serverDot, { backgroundColor: reservation.server.color }]}
+                      />
+                      <Text style={styles.serverNameText}>{reservation.server.name}</Text>
+                    </View>
+                  ) : (
+                    <Text style={styles.noServerText}>Not assigned</Text>
+                  )}
+                </View>
+                {!isFinal && (
+                  <Pressable
+                    style={styles.editServerButton}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+                      setShowServerPicker(true)
+                    }}
+                  >
+                    <Text style={styles.editServerButtonText}>
+                      {reservation.server ? 'CHANGE' : 'ASSIGN'}
+                    </Text>
+                  </Pressable>
+                )}
+              </View>
+            </View>
+
+            {/* Notes */}
+            <View style={styles.card}>
+              <View style={styles.notesHeader}>
+                <Text style={styles.cardTitle}>NOTES</Text>
+                {!isFinal && (
+                  <Pressable
+                    style={styles.editNotesButton}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+                      setShowNotesEditor(true)
+                    }}
+                  >
+                    <Text style={styles.editNotesButtonText}>EDIT</Text>
+                  </Pressable>
+                )}
+              </View>
+              {reservation.notes ? (
+                <Text style={styles.notesText}>{reservation.notes}</Text>
+              ) : (
+                <Text style={styles.noNotesText}>No guest notes</Text>
               )}
             </View>
-          </View>
-          <View style={styles.statusBadge}>
-            <Text style={styles.statusText}>{reservation.status}</Text>
-          </View>
+
+            <View style={[styles.card, { backgroundColor: Neo.yellow }]}>
+              <Text style={styles.cardTitle}>ADMIN NOTES</Text>
+              {reservation.admin_notes ? (
+                <Text style={styles.notesText}>{reservation.admin_notes}</Text>
+              ) : (
+                <Text style={styles.noNotesText}>No admin notes</Text>
+              )}
+            </View>
+
+            {/* Payment Section for Event Reservations */}
+            {hasPaymentInfo && reservation.payment_status && (
+              <View style={[styles.card, { backgroundColor: Neo.white }]}>
+                <Text style={styles.cardTitle}>PAYMENT</Text>
+                <View style={styles.paymentHeader}>
+                  <PaymentStatusBadge status={reservation.payment_status} />
+                </View>
+                {reservation.amount_total_cents != null && reservation.amount_total_cents > 0 && (
+                  <View style={styles.paymentDetails}>
+                    <View style={styles.paymentRow}>
+                      <Text style={styles.paymentLabel}>TOTAL</Text>
+                      <Text style={styles.paymentValue}>
+                        ${(reservation.amount_total_cents / 100).toFixed(2)}{' '}
+                        {reservation.currency || 'USD'}
+                      </Text>
+                    </View>
+                    {reservation.refunded_amount_cents != null &&
+                      reservation.refunded_amount_cents > 0 && (
+                        <View style={styles.paymentRow}>
+                          <Text style={styles.paymentLabel}>REFUNDED</Text>
+                          <Text style={[styles.paymentValue, { color: Neo.pink }]}>
+                            -${(reservation.refunded_amount_cents / 100).toFixed(2)}
+                          </Text>
+                        </View>
+                      )}
+                  </View>
+                )}
+              </View>
+            )}
+
+            {/* Guest Profile */}
+            {reservation.guest && (
+              <Pressable
+                style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+                  router.push(`/guest/${reservation.guest!.id}`)
+                }}
+                accessibilityLabel={`View profile for ${reservation.guest.name}`}
+                accessibilityRole="button"
+              >
+                <View style={styles.guestProfileHeader}>
+                  <Text style={styles.cardTitle}>GUEST PROFILE</Text>
+                  <Text style={styles.viewProfileLink}>VIEW →</Text>
+                </View>
+                <View style={styles.guestProfile}>
+                  <View style={styles.guestAvatar}>
+                    {reservation.guest.imageUrl ? (
+                      <Image
+                        source={{ uri: reservation.guest.imageUrl }}
+                        style={styles.guestAvatarImage}
+                      />
+                    ) : (
+                      <Text style={styles.guestAvatarText}>
+                        {reservation.guest.name
+                          .split(' ')
+                          .map((n) => n[0])
+                          .join('')
+                          .slice(0, 2)}
+                      </Text>
+                    )}
+                  </View>
+                  <View style={styles.guestDetails}>
+                    <Text style={styles.guestProfileName}>{reservation.guest.name}</Text>
+                    <Text style={styles.guestProfileStats}>
+                      {reservation.guest.visitCount} visits
+                      {(reservation.guest.noShowCount ?? reservation.guest.noShows ?? 0) > 0 &&
+                        ` · ${reservation.guest.noShowCount ?? reservation.guest.noShows} no-shows`}
+                    </Text>
+                  </View>
+                </View>
+              </Pressable>
+            )}
+          </ScrollView>
+
+          {/* Right pane: Turn time + Actions */}
+          <ScrollView style={styles.rightPane} contentContainerStyle={styles.rightPaneContent}>
+            {/* Turn Time for Seated Guests */}
+            {isSeated && reservation.seated_at && (
+              <TurnTimeDisplay seatedAt={reservation.seated_at} covers={reservation.covers} />
+            )}
+
+            {/* Payment Actions for tablet - moved here */}
+            {hasPaymentInfo && reservation.payment_status && (
+              <View style={styles.paymentActions}>
+                {isPendingPayment && (
+                  <NeoButton
+                    label="SEND PAYMENT LINK"
+                    onPress={handleSendPaymentLink}
+                    variant="primary"
+                    disabled={isMutating}
+                    loading={sendPaymentLinkMutation.isPending}
+                  />
+                )}
+                {canRefund && !isFinal && (
+                  <NeoButton
+                    label="PROCESS REFUND"
+                    onPress={handleRefund}
+                    variant="destructive"
+                    disabled={isMutating}
+                    loading={refundMutation.isPending}
+                  />
+                )}
+              </View>
+            )}
+
+            {/* Actions */}
+            {!isFinal && (
+              <View style={styles.actions}>
+                {isBooked && (
+                  <>
+                    <NeoButton
+                      label="CONFIRM"
+                      onPress={handleConfirm}
+                      variant="secondary"
+                      disabled={isMutating}
+                      loading={confirmMutation.isPending}
+                    />
+                    <NeoButton
+                      label="SEAT GUEST"
+                      onPress={handleSeat}
+                      variant="primary"
+                      disabled={isMutating}
+                      loading={seatMutation.isPending}
+                    />
+                    <NeoButton
+                      label="MARK NO-SHOW"
+                      onPress={handleNoShow}
+                      variant="secondary"
+                      disabled={isMutating}
+                      loading={noShowMutation.isPending}
+                    />
+                    <NeoButton
+                      label="CANCEL RESERVATION"
+                      onPress={handleCancel}
+                      variant="destructive"
+                      disabled={isMutating}
+                      loading={cancelMutation.isPending}
+                    />
+                  </>
+                )}
+                {isConfirmed && (
+                  <>
+                    <NeoButton
+                      label="SEAT GUEST"
+                      onPress={handleSeat}
+                      variant="primary"
+                      disabled={isMutating}
+                      loading={seatMutation.isPending}
+                    />
+                    <NeoButton
+                      label="MARK NO-SHOW"
+                      onPress={handleNoShow}
+                      variant="secondary"
+                      disabled={isMutating}
+                      loading={noShowMutation.isPending}
+                    />
+                    <NeoButton
+                      label="CANCEL RESERVATION"
+                      onPress={handleCancel}
+                      variant="destructive"
+                      disabled={isMutating}
+                      loading={cancelMutation.isPending}
+                    />
+                  </>
+                )}
+                {isSeated && (
+                  <>
+                    <NeoButton
+                      label="COMPLETE VISIT"
+                      onPress={handleComplete}
+                      variant="primary"
+                      disabled={isMutating}
+                      loading={completeMutation.isPending}
+                    />
+                    <NeoButton
+                      label="UNSEAT"
+                      onPress={handleUnseat}
+                      variant="secondary"
+                      disabled={isMutating}
+                      loading={unseatMutation.isPending}
+                    />
+                    <NeoButton
+                      label="MARK NO-SHOW"
+                      onPress={handleNoShow}
+                      variant="secondary"
+                      disabled={isMutating}
+                      loading={noShowMutation.isPending}
+                    />
+                    <NeoButton
+                      label="CANCEL RESERVATION"
+                      onPress={handleCancel}
+                      variant="destructive"
+                      disabled={isMutating}
+                      loading={cancelMutation.isPending}
+                    />
+                  </>
+                )}
+              </View>
+            )}
+          </ScrollView>
         </View>
+      ) : (
+        // Phone: Original stacked layout
+        <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
+          {/* Header */}
+          <View style={[styles.headerCard, { backgroundColor: statusColor }]}>
+            <View style={styles.headerContent}>
+              <Text style={styles.guestName}>{reservation.name}</Text>
+              <View style={styles.headerBadges}>
+                {isWalkIn && <WalkInBadge />}
+                {isEventReservation && reservation.event_name && (
+                  <EventBadge name={reservation.event_name} />
+                )}
+              </View>
+            </View>
+            <View style={styles.statusBadge}>
+              <Text style={styles.statusText}>{reservation.status}</Text>
+            </View>
+          </View>
 
-        {/* Turn Time for Seated Guests */}
-        {isSeated && reservation.seated_at && (
-          <TurnTimeDisplay seatedAt={reservation.seated_at} covers={reservation.covers} />
-        )}
+          {/* Turn Time for Seated Guests */}
+          {isSeated && reservation.seated_at && (
+            <TurnTimeDisplay seatedAt={reservation.seated_at} covers={reservation.covers} />
+          )}
 
-        {/* Details */}
-        <View style={styles.card}>
+          {/* Details */}
+          <View style={styles.card}>
+          <View style={styles.detailsHeader}>
+            <Text style={styles.cardTitle}>DETAILS</Text>
+            {!isFinal && (
+              <Pressable
+                style={styles.editDetailsButton}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+                  setShowEditModal(true)
+                }}
+              >
+                <Text style={styles.editDetailsButtonText}>EDIT</Text>
+              </Pressable>
+            )}
+          </View>
           <InfoRow label="TIME" value={time} />
           <InfoRow label="PARTY SIZE" value={`${reservation.covers} guests`} />
           <View style={styles.tableRow}>
@@ -793,7 +1164,8 @@ export default function ReservationDetailScreen() {
             )}
           </View>
         )}
-      </ScrollView>
+        </ScrollView>
+      )}
 
       {/* Table Picker Modal */}
       <TablePickerModal
@@ -822,6 +1194,23 @@ export default function ReservationDetailScreen() {
         onSelect={handleSaveServer}
         onClose={() => setShowServerPicker(false)}
       />
+
+      {/* Reservation Edit Modal */}
+      {reservation && (
+        <ReservationEditModal
+          visible={showEditModal}
+          initialValues={{
+            name: reservation.name,
+            date: reservation.date || '',
+            time: reservation.time,
+            covers: reservation.covers,
+            email: reservation.email ?? null,
+            phone: reservation.phone ?? null,
+          }}
+          onSave={handleSaveReservationDetails}
+          onClose={() => setShowEditModal(false)}
+        />
+      )}
     </SafeAreaView>
   )
 }
@@ -835,6 +1224,24 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
+    padding: 16,
+    gap: 16,
+  },
+  // Tablet split layout
+  splitContainer: {
+    flex: 1,
+    flexDirection: 'row',
+  },
+  leftPane: {
+    width: '60%',
+    borderRightWidth: NeoBorder.default,
+    borderRightColor: Neo.black,
+  },
+  rightPane: {
+    width: '40%',
+    backgroundColor: Neo.cream,
+  },
+  rightPaneContent: {
     padding: 16,
     gap: 16,
   },
@@ -975,6 +1382,26 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 2,
     marginBottom: 12,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  detailsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  editDetailsButton: {
+    backgroundColor: Neo.lime,
+    borderWidth: NeoBorder.thin,
+    borderColor: Neo.black,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  editDetailsButtonText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: Neo.black,
+    letterSpacing: 1,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   infoRow: {

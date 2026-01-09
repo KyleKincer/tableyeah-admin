@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
@@ -18,18 +18,8 @@ import * as Haptics from 'expo-haptics'
 import { Neo, NeoBorder, NeoShadow } from '@/constants/theme'
 import { useGeneralSettings } from '@/lib/api/queries'
 import { useUpdateGeneralSettings } from '@/lib/api/mutations'
+import { getTimezoneOptions, formatTimezone, type TimezoneOption } from '@/lib/timezones'
 import type { GeneralSettings } from '@/lib/types'
-
-// Common US timezones
-const TIMEZONES = [
-  { value: 'America/New_York', label: 'Eastern (ET)' },
-  { value: 'America/Chicago', label: 'Central (CT)' },
-  { value: 'America/Denver', label: 'Mountain (MT)' },
-  { value: 'America/Los_Angeles', label: 'Pacific (PT)' },
-  { value: 'America/Phoenix', label: 'Arizona (MST)' },
-  { value: 'America/Anchorage', label: 'Alaska (AKT)' },
-  { value: 'Pacific/Honolulu', label: 'Hawaii (HST)' },
-]
 
 function FormField({
   label,
@@ -77,7 +67,34 @@ function TimezonePicker({
   onChange: (tz: string) => void
 }) {
   const [expanded, setExpanded] = useState(false)
-  const selectedTz = TIMEZONES.find((tz) => tz.value === value)
+  const [searchQuery, setSearchQuery] = useState('')
+
+  const allOptions = useMemo(() => getTimezoneOptions(), [])
+
+  const filteredOptions = useMemo(() => {
+    if (!searchQuery.trim()) {
+      return allOptions
+    }
+
+    const query = searchQuery.toLowerCase()
+    return allOptions.filter(
+      opt =>
+        opt.rawLabel.toLowerCase().includes(query) ||
+        opt.label.toLowerCase().includes(query) ||
+        opt.currentOffset.includes(
+          query.replace('utc', '').replace('+', '').replace('-', '')
+        )
+    )
+  }, [allOptions, searchQuery])
+
+  const displayValue = value ? formatTimezone(value) : 'Select timezone'
+
+  const handleSelect = (optionValue: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+    onChange(optionValue)
+    setExpanded(false)
+    setSearchQuery('')
+  }
 
   return (
     <View style={styles.formField}>
@@ -91,42 +108,62 @@ function TimezonePicker({
         accessibilityLabel="Select timezone"
         accessibilityRole="button"
       >
-        <Text style={styles.pickerButtonText}>
-          {selectedTz?.label || value || 'Select timezone'}
+        <Text style={styles.pickerButtonText} numberOfLines={1}>
+          {displayValue}
         </Text>
         <Text style={styles.pickerChevron}>{expanded ? '▲' : '▼'}</Text>
       </Pressable>
       {expanded && (
         <View style={styles.pickerOptions}>
-          {TIMEZONES.map((tz) => (
-            <Pressable
-              key={tz.value}
-              style={[
-                styles.pickerOption,
-                value === tz.value && styles.pickerOptionSelected,
-              ]}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-                onChange(tz.value)
-                setExpanded(false)
-              }}
-              accessibilityLabel={tz.label}
-              accessibilityRole="radio"
-              accessibilityState={{ selected: value === tz.value }}
-            >
-              <Text
-                style={[
-                  styles.pickerOptionText,
-                  value === tz.value && styles.pickerOptionTextSelected,
-                ]}
-              >
-                {tz.label}
-              </Text>
-              {value === tz.value && (
-                <Text style={styles.pickerCheckmark}>✓</Text>
-              )}
-            </Pressable>
-          ))}
+          <View style={styles.searchContainer}>
+            <TextInput
+              style={styles.searchInput}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              placeholder="Search timezones..."
+              placeholderTextColor={Neo.black + '40'}
+              autoFocus
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </View>
+          <ScrollView
+            style={styles.pickerScrollView}
+            keyboardShouldPersistTaps="handled"
+          >
+            {filteredOptions.length === 0 ? (
+              <View style={styles.noResultsContainer}>
+                <Text style={styles.noResultsText}>No timezones found</Text>
+              </View>
+            ) : (
+              filteredOptions.map(tz => (
+                <Pressable
+                  key={tz.value}
+                  style={[
+                    styles.pickerOption,
+                    value === tz.value && styles.pickerOptionSelected,
+                  ]}
+                  onPress={() => handleSelect(tz.value)}
+                  accessibilityLabel={tz.label}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: value === tz.value }}
+                >
+                  <Text
+                    style={[
+                      styles.pickerOptionText,
+                      value === tz.value && styles.pickerOptionTextSelected,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {tz.label}
+                  </Text>
+                  {value === tz.value && (
+                    <Text style={styles.pickerCheckmark}>✓</Text>
+                  )}
+                </Pressable>
+              ))
+            )}
+          </ScrollView>
         </View>
       )}
     </View>
@@ -497,7 +534,8 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   pickerButtonText: {
-    fontSize: 15,
+    flex: 1,
+    fontSize: 14,
     fontWeight: '600',
     color: Neo.black,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
@@ -512,6 +550,35 @@ const styles = StyleSheet.create({
     borderColor: Neo.black,
     backgroundColor: Neo.white,
   },
+  searchContainer: {
+    padding: 8,
+    borderBottomWidth: 2,
+    borderBottomColor: Neo.black + '20',
+  },
+  searchInput: {
+    backgroundColor: Neo.cream,
+    borderWidth: NeoBorder.thin,
+    borderColor: Neo.black,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    fontWeight: '600',
+    color: Neo.black,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  pickerScrollView: {
+    maxHeight: 300,
+  },
+  noResultsContainer: {
+    padding: 16,
+    alignItems: 'center',
+  },
+  noResultsText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Neo.black + '60',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
   pickerOption: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -525,7 +592,8 @@ const styles = StyleSheet.create({
     backgroundColor: Neo.lime + '40',
   },
   pickerOptionText: {
-    fontSize: 14,
+    flex: 1,
+    fontSize: 13,
     fontWeight: '600',
     color: Neo.black,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',

@@ -1,16 +1,16 @@
-import { useMemo, useCallback, useState, useRef, useEffect } from 'react'
+import { useMemo, useCallback, useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react'
 import { View, StyleSheet, Platform } from 'react-native'
-import { Canvas, Group, Rect, Circle, Text as SkiaText, matchFont } from '@shopify/react-native-skia'
+import { Canvas, Group, Rect, Circle, Text as SkiaText, matchFont, Image as SkiaImage, useImage } from '@shopify/react-native-skia'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
-import { useSharedValue, runOnJS, withDecay, withTiming, Easing } from 'react-native-reanimated'
+import { useSharedValue, runOnJS, withDecay, withTiming, withRepeat, withSequence, Easing } from 'react-native-reanimated'
 import * as Haptics from 'expo-haptics'
-import { differenceInMinutes, parseISO } from 'date-fns'
+import { differenceInSeconds, parseISO } from 'date-fns'
 
 import { Neo } from '@/constants/theme'
 import type { TableWithStatus, FloorPlanElement } from '@/lib/types'
 import type { SkFont } from '@shopify/react-native-skia'
 
-import type { SkiaFloorPlanCanvasProps, TransformState, ServerAssignmentRecord } from './types'
+import type { SkiaFloorPlanCanvasProps, TransformState, ServerAssignmentRecord, TableTapResult, SkiaFloorPlanCanvasRef } from './types'
 import {
   REFERENCE_WIDTH,
   TABLE_NUMBER_FONT_SIZE,
@@ -205,33 +205,62 @@ const badgeFont = matchFont({
   fontWeight: 'bold',
 })
 
+// Larger fonts for redesigned turn time badge
+const badgeNameFont = matchFont({
+  fontFamily,
+  fontSize: 13,
+  fontWeight: '800',
+})
+
+const badgeTimeFont = matchFont({
+  fontFamily,
+  fontSize: 14,
+  fontWeight: '800',
+})
+
+// Small font for tag indicators on tables
+const tagIndicatorFont = matchFont({
+  fontFamily,
+  fontSize: 10,
+  fontWeight: '800',
+})
+
 const elementLabelFont = matchFont({
   fontFamily,
   fontSize: ELEMENT_LABEL_FONT_SIZE,
   fontWeight: 'normal',
 })
 
-export function SkiaFloorPlanCanvas({
-  tables,
-  elements,
-  selectedTableId,
-  pressedTableId,
-  serverAssignments,
-  mode,
-  containerWidth,
-  containerHeight,
-  onTableTap,
-  onTableLongPress,
-  onBackgroundTap,
-  onPressIn,
-  onPressOut,
-  selectedServerId,
-  pendingServerAssignments,
-}: SkiaFloorPlanCanvasProps) {
+export const SkiaFloorPlanCanvas = forwardRef<SkiaFloorPlanCanvasRef, SkiaFloorPlanCanvasProps>(
+  function SkiaFloorPlanCanvas({
+    tables,
+    elements,
+    selectedTableId,
+    pressedTableId,
+    serverAssignments,
+    mode,
+    containerWidth,
+    containerHeight,
+    onTableTap,
+    onTableLongPress,
+    onBackgroundTap,
+    onPressIn,
+    onPressOut,
+    selectedServerId,
+    pendingServerAssignments,
+    highlightedTableIds = [],
+    currentTime,
+  }, ref) {
   // Filter tables with valid positions
   const positionedTables = useMemo(
     () => tables.filter((t) => t.position_x != null && t.position_y != null),
     [tables]
+  )
+
+  // Create set of highlighted table IDs for efficient lookup
+  const highlightedSet = useMemo(
+    () => new Set(highlightedTableIds),
+    [highlightedTableIds]
   )
 
   // Filter active elements
@@ -276,6 +305,27 @@ export function SkiaFloorPlanCanvas({
     translateY: initialFit.translateY,
   })
 
+  // Highlight pulse animation (0 to 1, repeating)
+  const highlightPulse = useSharedValue(0)
+  const [pulseValue, setPulseValue] = useState(0)
+
+  // Start/stop pulse animation when highlights change
+  useEffect(() => {
+    if (highlightedTableIds.length > 0) {
+      // Start pulsing animation
+      highlightPulse.value = withRepeat(
+        withSequence(
+          withTiming(1, { duration: 800, easing: Easing.inOut(Easing.ease) }),
+          withTiming(0, { duration: 800, easing: Easing.inOut(Easing.ease) })
+        ),
+        -1 // infinite
+      )
+    } else {
+      // Stop animation
+      highlightPulse.value = withTiming(0, { duration: 200 })
+    }
+  }, [highlightedTableIds.length > 0])
+
   // Apply initial fit on first render and when content changes significantly
   useEffect(() => {
     if (!hasInitialized.current && (positionedTables.length > 0 || activeElements.length > 0)) {
@@ -290,7 +340,7 @@ export function SkiaFloorPlanCanvas({
     }
   }, [positionedTables, activeElements, containerWidth, containerHeight, scale, translateX, translateY, savedScale, savedTranslateX, savedTranslateY])
 
-  // Poll transform values at 60fps for rendering
+  // Poll transform and animation values at 60fps for rendering
   useEffect(() => {
     const interval = setInterval(() => {
       setCurrentTransform({
@@ -298,11 +348,13 @@ export function SkiaFloorPlanCanvas({
         translateX: translateX.value,
         translateY: translateY.value,
       })
+      setPulseValue(highlightPulse.value)
     }, 16)
     return () => clearInterval(interval)
-  }, [scale, translateX, translateY])
+  }, [scale, translateX, translateY, highlightPulse])
 
   // Hit test function - takes transform values as parameters
+  // Returns table with its screen position for action card positioning
   const performHitTest = useCallback(
     (
       screenX: number,
@@ -310,7 +362,7 @@ export function SkiaFloorPlanCanvas({
       scaleVal: number,
       txVal: number,
       tyVal: number
-    ): TableWithStatus | null => {
+    ): TableTapResult | null => {
       // Convert screen to content coordinates
       const contentX = (screenX - txVal) / scaleVal
       const contentY = (screenY - tyVal) / scaleVal
@@ -319,7 +371,11 @@ export function SkiaFloorPlanCanvas({
       for (let i = tablesRef.current.length - 1; i >= 0; i--) {
         const table = tablesRef.current[i]
         if (isPointInTable(contentX, contentY, table, contentWidth, contentHeight)) {
-          return table
+          // Calculate table's center position in screen coordinates
+          const { posX, posY } = getTableDimensions(table, contentWidth, contentHeight)
+          const tableScreenX = posX * scaleVal + txVal
+          const tableScreenY = posY * scaleVal + tyVal
+          return { table, screenX: tableScreenX, screenY: tableScreenY }
         }
       }
       return null
@@ -330,10 +386,10 @@ export function SkiaFloorPlanCanvas({
   // Tap handler - receives transform values from worklet
   const handleTapHitTest = useCallback(
     (screenX: number, screenY: number, scaleVal: number, txVal: number, tyVal: number) => {
-      const table = performHitTest(screenX, screenY, scaleVal, txVal, tyVal)
-      if (table) {
+      const result = performHitTest(screenX, screenY, scaleVal, txVal, tyVal)
+      if (result) {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-        onTableTap(table)
+        onTableTap(result)
       } else {
         onBackgroundTap()
       }
@@ -344,10 +400,10 @@ export function SkiaFloorPlanCanvas({
   // Long press handler
   const handleLongPressHitTest = useCallback(
     (screenX: number, screenY: number, scaleVal: number, txVal: number, tyVal: number) => {
-      const table = performHitTest(screenX, screenY, scaleVal, txVal, tyVal)
-      if (table) {
+      const result = performHitTest(screenX, screenY, scaleVal, txVal, tyVal)
+      if (result) {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
-        onTableLongPress(table)
+        onTableLongPress(result.table)
       }
     },
     [performHitTest, onTableLongPress]
@@ -356,9 +412,9 @@ export function SkiaFloorPlanCanvas({
   // Touch start handler (for press visual feedback)
   const handleTouchStart = useCallback(
     (screenX: number, screenY: number, scaleVal: number, txVal: number, tyVal: number) => {
-      const table = performHitTest(screenX, screenY, scaleVal, txVal, tyVal)
-      if (table) {
-        onPressIn(table.id)
+      const result = performHitTest(screenX, screenY, scaleVal, txVal, tyVal)
+      if (result) {
+        onPressIn(result.table.id)
       }
     },
     [performHitTest, onPressIn]
@@ -384,6 +440,60 @@ export function SkiaFloorPlanCanvas({
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
   }, [containerWidth, containerHeight, scale, translateX, translateY, savedScale, savedTranslateX, savedTranslateY])
 
+  // Zoom to center a specific table (for phone auto-zoom)
+  const zoomToTable = useCallback((tableId: number, targetScale: number = 1.5) => {
+    const table = tablesRef.current.find(t => t.id === tableId)
+    if (!table) return
+
+    const { posX, posY } = getTableDimensions(table, contentWidth, contentHeight)
+
+    // Clamp target scale
+    const newScale = clamp(targetScale, MIN_SCALE, MAX_SCALE)
+
+    // Calculate translation to center the table on screen
+    const targetTx = containerWidth / 2 - posX * newScale
+    const targetTy = containerHeight / 2 - posY * newScale
+
+    // Calculate scaled content bounds for clamping
+    const scaledWidth = contentWidth * newScale
+    const scaledHeight = contentHeight * newScale
+
+    // Clamp translations to keep content visible
+    let clampedTx = targetTx
+    let clampedTy = targetTy
+
+    if (scaledWidth <= containerWidth) {
+      clampedTx = (containerWidth - scaledWidth) / 2
+    } else {
+      const minX = containerWidth - scaledWidth
+      clampedTx = clamp(targetTx, minX, 0)
+    }
+
+    if (scaledHeight <= containerHeight) {
+      clampedTy = (containerHeight - scaledHeight) / 2
+    } else {
+      const minY = containerHeight - scaledHeight
+      clampedTy = clamp(targetTy, minY, 0)
+    }
+
+    // Animate with smooth timing
+    const timingConfig = { duration: 300, easing: Easing.out(Easing.cubic) }
+    scale.value = withTiming(newScale, timingConfig)
+    translateX.value = withTiming(clampedTx, timingConfig)
+    translateY.value = withTiming(clampedTy, timingConfig)
+
+    // Update saved values for gesture continuity
+    savedScale.value = newScale
+    savedTranslateX.value = clampedTx
+    savedTranslateY.value = clampedTy
+  }, [contentWidth, contentHeight, containerWidth, containerHeight, scale, translateX, translateY, savedScale, savedTranslateX, savedTranslateY])
+
+  // Expose imperative methods via ref
+  useImperativeHandle(ref, () => ({
+    zoomToTable,
+    resetView: resetToFit,
+  }), [zoomToTable, resetToFit])
+
   // Track last tap time for manual double-tap detection
   const lastTapTime = useSharedValue(0)
   const lastTapX = useSharedValue(0)
@@ -400,10 +510,10 @@ export function SkiaFloorPlanCanvas({
         resetToFit()
       } else {
         // Single tap - immediate!
-        const table = performHitTest(x, y, scaleVal, txVal, tyVal)
-        if (table) {
+        const result = performHitTest(x, y, scaleVal, txVal, tyVal)
+        if (result) {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-          onTableTap(table)
+          onTableTap(result)
         } else {
           onBackgroundTap()
         }
@@ -633,15 +743,34 @@ export function SkiaFloorPlanCanvas({
               }, [elements, contentWidth, contentHeight])}
             </Group>
 
-            {/* Tables (unselected first, then selected) */}
+            {/* Tables (unselected first, then selected/highlighted) */}
             <Group>
               {positionedTables
-                .filter((t) => t.id !== selectedTableId)
+                .filter((t) => t.id !== selectedTableId && !highlightedSet.has(t.id))
                 .map((table) => (
                   <TableRenderer
                     key={`table-${table.id}`}
                     table={table}
                     isSelected={false}
+                    isHighlighted={false}
+                    highlightPulse={0}
+                    isPressed={pressedTableId === table.id}
+                    serverColor={getServerColor(table.id)}
+                    containerWidth={contentWidth}
+                    containerHeight={contentHeight}
+                    fonts={{ tableNumber: tableNumberFont, capacity: capacityFont }}
+                  />
+                ))}
+              {/* Highlighted tables (from list selection) */}
+              {positionedTables
+                .filter((t) => highlightedSet.has(t.id) && t.id !== selectedTableId)
+                .map((table) => (
+                  <TableRenderer
+                    key={`table-${table.id}`}
+                    table={table}
+                    isSelected={false}
+                    isHighlighted={true}
+                    highlightPulse={pulseValue}
                     isPressed={pressedTableId === table.id}
                     serverColor={getServerColor(table.id)}
                     containerWidth={contentWidth}
@@ -658,6 +787,8 @@ export function SkiaFloorPlanCanvas({
                       key={`table-${table.id}`}
                       table={table}
                       isSelected={true}
+                      isHighlighted={highlightedSet.has(table.id)}
+                      highlightPulse={pulseValue}
                       isPressed={pressedTableId === table.id}
                       serverColor={getServerColor(table.id)}
                       containerWidth={contentWidth}
@@ -677,7 +808,7 @@ export function SkiaFloorPlanCanvas({
                     table={table}
                     containerWidth={contentWidth}
                     containerHeight={contentHeight}
-                    font={badgeFont}
+                    currentTime={currentTime}
                   />
                 ))}
             </Group>
@@ -686,7 +817,7 @@ export function SkiaFloorPlanCanvas({
       </View>
     </GestureDetector>
   )
-}
+})
 
 // ============================================================================
 // Sub-components
@@ -695,6 +826,8 @@ export function SkiaFloorPlanCanvas({
 interface TableRendererProps {
   table: TableWithStatus
   isSelected: boolean
+  isHighlighted: boolean
+  highlightPulse: number
   isPressed: boolean
   serverColor?: string
   containerWidth: number
@@ -705,6 +838,8 @@ interface TableRendererProps {
 function TableRenderer({
   table,
   isSelected,
+  isHighlighted,
+  highlightPulse,
   isPressed,
   serverColor,
   containerWidth,
@@ -736,6 +871,7 @@ function TableRenderer({
   const blackBorderSize = 2
   const serverRingSize = 4
   const selectionRingSize = 3
+  const highlightRingSize = 4
 
   const halfW = scaledWidth / 2
   const halfH = scaledHeight / 2
@@ -747,6 +883,8 @@ function TableRenderer({
   const serverOuterH = blackOuterH + serverRingSize
   const selectionOuterW = (serverColor ? serverOuterW : blackOuterW) + selectionRingSize
   const selectionOuterH = (serverColor ? serverOuterH : blackOuterH) + selectionRingSize
+  const highlightOuterW = (serverColor ? serverOuterW : blackOuterW) + highlightRingSize
+  const highlightOuterH = (serverColor ? serverOuterH : blackOuterH) + highlightRingSize
 
   const isCircular = shape === 'CIRCLE'
 
@@ -759,6 +897,47 @@ function TableRenderer({
         { scale: pressScale },
       ]}
     >
+      {/* Highlight glow - pulsing cyan background (for list selection) */}
+      {isHighlighted && !isSelected && (() => {
+        // Animate glow size and opacity based on pulse (0 to 1)
+        const glowExpand = 4 + highlightPulse * 6 // 4 to 10 extra pixels
+        const glowOpacity = Math.round(0x40 + highlightPulse * 0x30).toString(16).padStart(2, '0') // 40 to 70 hex
+        const glowRadius = highlightOuterW + glowExpand
+        const glowRadiusH = highlightOuterH + glowExpand
+        return (
+          <>
+            {isCircular ? (
+              <Circle cx={0} cy={0} r={glowRadius} color={Neo.cyan + glowOpacity} />
+            ) : (
+              <Rect
+                x={-glowRadius}
+                y={-glowRadiusH}
+                width={glowRadius * 2}
+                height={glowRadiusH * 2}
+                color={Neo.cyan + glowOpacity}
+              />
+            )}
+          </>
+        )
+      })()}
+
+      {/* Highlight ring fill (cyan ring for list selection) */}
+      {isHighlighted && !isSelected && (
+        <>
+          {isCircular ? (
+            <Circle cx={0} cy={0} r={highlightOuterW} color={Neo.cyan} />
+          ) : (
+            <Rect
+              x={-highlightOuterW}
+              y={-highlightOuterH}
+              width={highlightOuterW * 2}
+              height={highlightOuterH * 2}
+              color={Neo.cyan}
+            />
+          )}
+        </>
+      )}
+
       {/* Selection glow - soft background */}
       {isSelected && (
         <>
@@ -843,6 +1022,17 @@ function TableRenderer({
         <Rect x={-halfW} y={-halfH} width={scaledWidth} height={scaledHeight} color={fillColor} />
       )}
 
+      {/* Tag indicators in top-left corner */}
+      {table.currentReservation && (
+        <TagIndicators
+          tags={table.currentReservation.tags}
+          guestTags={table.currentReservation.guestTags}
+          tableHalfW={halfW}
+          tableHalfH={halfH}
+          rotation={rotation}
+        />
+      )}
+
       {/* Counter-rotate for text */}
       <Group transform={[{ rotate: (-rotation * Math.PI) / 180 }]}>
         <TableText text={table.table_number} font={fonts.tableNumber} color={textColor} y={4} />
@@ -857,6 +1047,122 @@ function TableRenderer({
           y={16}
         />
       </Group>
+    </Group>
+  )
+}
+
+// Tag indicator badges for table corners
+interface TagIndicatorsProps {
+  tags: import('@/lib/types').ReservationTag[] | null
+  guestTags: import('@/lib/types').GuestTag[] | null
+  tableHalfW: number
+  tableHalfH: number
+  rotation: number
+}
+
+function TagIndicators({ tags, guestTags, tableHalfW, tableHalfH, rotation }: TagIndicatorsProps) {
+  const hasDietary = tags?.some(t => t.type === 'DIETARY')
+  const hasOccasion = tags?.some(t => t.type === 'OCCASION')
+  const firstGuestTag = guestTags?.[0]
+
+  if (!hasDietary && !hasOccasion && !firstGuestTag) return null
+
+  const INDICATOR_SIZE = 16
+  const INDICATOR_GAP = 2
+  const CORNER_OFFSET = 4
+
+  // Position in top-left corner of table
+  const startX = -tableHalfW - CORNER_OFFSET
+  const startY = -tableHalfH - CORNER_OFFSET - INDICATOR_SIZE
+
+  // Calculate x positions for each indicator
+  let index = 0
+  const dietaryX = hasDietary ? (index++) * (INDICATOR_SIZE + INDICATOR_GAP) : 0
+  const occasionX = hasOccasion ? (index++) * (INDICATOR_SIZE + INDICATOR_GAP) : 0
+  const guestTagX = firstGuestTag ? index * (INDICATOR_SIZE + INDICATOR_GAP) : 0
+
+  return (
+    <Group transform={[{ rotate: (-rotation * Math.PI) / 180 }]}>
+      {/* Dietary indicator - pink with ! */}
+      {hasDietary && (
+        <Group>
+          <Rect
+            x={startX + dietaryX}
+            y={startY}
+            width={INDICATOR_SIZE}
+            height={INDICATOR_SIZE}
+            color={Neo.black}
+          />
+          <Rect
+            x={startX + dietaryX + 1}
+            y={startY + 1}
+            width={INDICATOR_SIZE - 2}
+            height={INDICATOR_SIZE - 2}
+            color={Neo.pink}
+          />
+          <SkiaText
+            x={startX + dietaryX + 5}
+            y={startY + 12}
+            text="!"
+            font={tagIndicatorFont}
+            color={Neo.white}
+          />
+        </Group>
+      )}
+
+      {/* Occasion indicator - yellow with * (star) */}
+      {hasOccasion && (
+        <Group>
+          <Rect
+            x={startX + occasionX}
+            y={startY}
+            width={INDICATOR_SIZE}
+            height={INDICATOR_SIZE}
+            color={Neo.black}
+          />
+          <Rect
+            x={startX + occasionX + 1}
+            y={startY + 1}
+            width={INDICATOR_SIZE - 2}
+            height={INDICATOR_SIZE - 2}
+            color={Neo.yellow}
+          />
+          <SkiaText
+            x={startX + occasionX + 4}
+            y={startY + 12}
+            text="*"
+            font={tagIndicatorFont}
+            color={Neo.black}
+          />
+        </Group>
+      )}
+
+      {/* First guest tag - custom color with first letter of label */}
+      {firstGuestTag && (
+        <Group>
+          <Rect
+            x={startX + guestTagX}
+            y={startY}
+            width={INDICATOR_SIZE}
+            height={INDICATOR_SIZE}
+            color={Neo.black}
+          />
+          <Rect
+            x={startX + guestTagX + 1}
+            y={startY + 1}
+            width={INDICATOR_SIZE - 2}
+            height={INDICATOR_SIZE - 2}
+            color={firstGuestTag.color}
+          />
+          <SkiaText
+            x={startX + guestTagX + 4}
+            y={startY + 12}
+            text={firstGuestTag.label.charAt(0).toUpperCase()}
+            font={tagIndicatorFont}
+            color={Neo.black}
+          />
+        </Group>
+      )}
     </Group>
   )
 }
@@ -877,63 +1183,183 @@ interface BadgeRendererProps {
   table: TableWithStatus
   containerWidth: number
   containerHeight: number
-  font: SkFont
+  currentTime?: Date
 }
 
-function BadgeRenderer({ table, containerWidth, containerHeight, font }: BadgeRendererProps) {
+function BadgeRenderer({ table, containerWidth, containerHeight, currentTime }: BadgeRendererProps) {
   if (!table.currentReservation?.seatedAt) return null
+
+  // Load guest image if available
+  const guestImageUrl = table.currentReservation.guestImageUrl
+  const guestImage = useImage(guestImageUrl || undefined)
+  const hasPhoto = !!guestImage
 
   const { posX, posY, scaledHeight } = useMemo(() => {
     const dims = getTableDimensions(table, containerWidth, containerHeight)
     return { posX: dims.posX, posY: dims.posY, scaledHeight: dims.scaledHeight }
   }, [table, containerWidth, containerHeight])
 
+  // Use currentTime prop if available, otherwise use current time
+  const now = currentTime || new Date()
   const seatedAt = table.currentReservation.seatedAt
   const expectedMinutes = 75
-  const elapsedMinutes = differenceInMinutes(new Date(), parseISO(seatedAt))
+  const elapsedSeconds = differenceInSeconds(now, parseISO(seatedAt))
+  const elapsedMinutes = Math.floor(elapsedSeconds / 60)
   const percentage = (elapsedMinutes / expectedMinutes) * 100
 
+  // Color coding: lime (on track), yellow (75-100% done), pink (overtime)
   let bgColor = Neo.lime
+  let isOvertime = false
   if (percentage >= 75 && percentage <= 100) {
     bgColor = Neo.yellow
   } else if (percentage > 100) {
     bgColor = Neo.pink
+    isOvertime = true
   }
 
-  const firstName = table.currentReservation.name?.split(' ')[0] || ''
-  const formatTime = (minutes: number) => {
-    if (minutes >= 60) {
-      const hours = Math.floor(minutes / 60)
-      const mins = minutes % 60
-      return `${hours}H${mins > 0 ? mins.toString().padStart(2, '0') : ''}`
+  // Get first name, truncate if too long
+  const fullName = table.currentReservation.name || ''
+  const firstName = fullName.split(' ')[0] || ''
+  const displayName = firstName.length > 8 ? firstName.slice(0, 7) + '…' : firstName
+
+  // Format time with seconds - MM:SS or H:MM:SS
+  const formatTime = (totalSeconds: number) => {
+    const absSeconds = Math.abs(totalSeconds)
+    const hours = Math.floor(absSeconds / 3600)
+    const minutes = Math.floor((absSeconds % 3600) / 60)
+    const seconds = absSeconds % 60
+
+    if (hours > 0) {
+      return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
     }
-    return `${minutes}M`
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`
   }
-  const timeText = formatTime(elapsedMinutes)
-  const labelText = firstName ? `${firstName} ${timeText}` : timeText
 
-  const textWidth = font.measureText(labelText).width
-  const BADGE_PADDING_H = 6
-  const BADGE_HEIGHT = 18
-  const BADGE_MARGIN_TOP = 4
-  const badgeWidth = textWidth + BADGE_PADDING_H * 2
+  const timeText = formatTime(elapsedSeconds)
+
+  // Badge dimensions
+  const PHOTO_SIZE = 28
+  const BADGE_PADDING_H = 8
+  const BADGE_PADDING_V = 4
+  const BADGE_MARGIN_TOP = 6
+  const PHOTO_MARGIN = 6
+
+  // Measure text widths
+  const nameWidth = badgeNameFont.measureText(displayName).width
+  const timeWidth = badgeTimeFont.measureText(timeText).width
+  const textWidth = Math.max(nameWidth, timeWidth)
+
+  // Badge width includes photo if present
+  const contentWidth = hasPhoto ? PHOTO_SIZE + PHOTO_MARGIN + textWidth : textWidth
+  const badgeWidth = contentWidth + BADGE_PADDING_H * 2
+
+  // Height: single row with photo, or two-line without
+  const lineHeight = 14
+  const badgeHeight = hasPhoto
+    ? PHOTO_SIZE + BADGE_PADDING_V * 2
+    : lineHeight * 2 + BADGE_PADDING_V * 2
+
   const badgeX = posX - badgeWidth / 2
   const badgeY = posY + scaledHeight / 2 + BADGE_MARGIN_TOP
 
+  // Photo position (left side, vertically centered)
+  const photoX = badgeX + BADGE_PADDING_H
+  const photoY = badgeY + BADGE_PADDING_V
+
+  // Text positions - right of photo if present, otherwise centered
+  const textAreaX = hasPhoto ? photoX + PHOTO_SIZE + PHOTO_MARGIN : badgeX + BADGE_PADDING_H
+  const textAreaWidth = hasPhoto ? textWidth : contentWidth
+
+  // With photo: name and time stacked in smaller area to right of photo
+  // Without photo: name on top, time below, centered
+  const nameX = hasPhoto
+    ? textAreaX
+    : posX - nameWidth / 2
+  const nameY = hasPhoto
+    ? badgeY + BADGE_PADDING_V + 11
+    : badgeY + BADGE_PADDING_V + lineHeight - 2
+  const timeX = hasPhoto
+    ? textAreaX
+    : posX - timeWidth / 2
+  const timeY = hasPhoto
+    ? badgeY + BADGE_PADDING_V + 24
+    : badgeY + BADGE_PADDING_V + lineHeight * 2 - 2
+
   return (
     <Group>
-      <Rect x={badgeX + 2} y={badgeY + 2} width={badgeWidth} height={BADGE_HEIGHT} color={Neo.black} />
-      <Rect x={badgeX} y={badgeY} width={badgeWidth} height={BADGE_HEIGHT} color={bgColor} />
+      {/* Shadow */}
+      <Rect
+        x={badgeX + 3}
+        y={badgeY + 3}
+        width={badgeWidth}
+        height={badgeHeight}
+        color={Neo.black}
+      />
+      {/* Background */}
       <Rect
         x={badgeX}
         y={badgeY}
         width={badgeWidth}
-        height={BADGE_HEIGHT}
+        height={badgeHeight}
+        color={bgColor}
+      />
+      {/* Border */}
+      <Rect
+        x={badgeX}
+        y={badgeY}
+        width={badgeWidth}
+        height={badgeHeight}
         color={Neo.black}
         style="stroke"
         strokeWidth={2}
       />
-      <SkiaText x={badgeX + BADGE_PADDING_H} y={badgeY + BADGE_HEIGHT - 5} text={labelText} font={font} color={Neo.black} />
+      {/* Overtime indicator stripe */}
+      {isOvertime && (
+        <Rect
+          x={badgeX}
+          y={badgeY}
+          width={4}
+          height={badgeHeight}
+          color={Neo.black}
+        />
+      )}
+      {/* Guest photo */}
+      {hasPhoto && guestImage && (
+        <>
+          {/* Photo border/frame */}
+          <Rect
+            x={photoX - 1}
+            y={photoY - 1}
+            width={PHOTO_SIZE + 2}
+            height={PHOTO_SIZE + 2}
+            color={Neo.black}
+          />
+          <SkiaImage
+            image={guestImage}
+            x={photoX}
+            y={photoY}
+            width={PHOTO_SIZE}
+            height={PHOTO_SIZE}
+            fit="cover"
+          />
+        </>
+      )}
+      {/* Name text */}
+      <SkiaText
+        x={nameX}
+        y={nameY}
+        text={displayName}
+        font={badgeNameFont}
+        color={Neo.black}
+      />
+      {/* Time text */}
+      <SkiaText
+        x={timeX}
+        y={timeY}
+        text={timeText}
+        font={badgeTimeFont}
+        color={Neo.black}
+      />
     </Group>
   )
 }

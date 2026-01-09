@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState, forwardRef, useRef, useImperativeHandle } from 'react'
 import {
   LayoutChangeEvent,
   Platform,
@@ -14,30 +14,45 @@ import type { TableWithStatus, FloorPlanElement } from '@/lib/types'
 
 import { SkiaFloorPlanCanvas } from './SkiaFloorPlanCanvas'
 import { ServerAssignmentPill } from './ServerAssignmentPill'
-import type { SkiaFloorPlanViewProps, FloorPlanStats, ServerAssignmentRecord } from './types'
+import type { SkiaFloorPlanViewProps, FloorPlanStats, ServerAssignmentRecord, TableTapResult, SkiaFloorPlanViewRef, SkiaFloorPlanCanvasRef } from './types'
 
-export function SkiaFloorPlanView({
-  tables,
-  elements = [],
-  selectedTableId,
-  onTablePress,
-  onTableLongPress,
-  onBackgroundPress,
-  serverAssignments = {},
-  mode = 'normal',
-  walkInPartySize,
-  onCancelMode,
-  servers = [],
-  selectedServerId,
-  pendingServerAssignments = {},
-  onSelectServer,
-  onToggleTableServer,
-  onSaveServerAssignments,
-  waitlistEntry,
-  onSeatWaitlistAtTable,
-}: SkiaFloorPlanViewProps) {
+export const SkiaFloorPlanView = forwardRef<SkiaFloorPlanViewRef, SkiaFloorPlanViewProps>(
+  function SkiaFloorPlanView({
+    tables,
+    elements = [],
+    selectedTableId,
+    onTablePress,
+    onTableLongPress,
+    onBackgroundPress,
+    serverAssignments = {},
+    mode = 'normal',
+    walkInPartySize,
+    onCancelMode,
+    servers = [],
+    selectedServerId,
+    pendingServerAssignments = {},
+    onSelectServer,
+    onToggleTableServer,
+    onSaveServerAssignments,
+    waitlistEntry,
+    onSeatWaitlistAtTable,
+    highlightedTableIds = [],
+    currentTime,
+    isPhone = false,
+  }, ref) {
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 })
   const [pressedTableId, setPressedTableId] = useState<number | null>(null)
+  const canvasRef = useRef<SkiaFloorPlanCanvasRef>(null)
+
+  // Expose imperative methods via ref (forward to canvas)
+  useImperativeHandle(ref, () => ({
+    zoomToTable: (tableId: number, targetScale?: number) => {
+      canvasRef.current?.zoomToTable(tableId, targetScale)
+    },
+    resetView: () => {
+      canvasRef.current?.resetView()
+    },
+  }), [])
 
   // Filter tables that have valid positions
   const positionedTables = useMemo(
@@ -65,13 +80,14 @@ export function SkiaFloorPlanView({
 
   // Handle table tap with mode-aware logic
   const handleTableTap = useCallback(
-    (table: TableWithStatus) => {
+    (result: TableTapResult) => {
+      const { table } = result
       if (mode === 'server-assignment' && selectedServerId) {
         onToggleTableServer?.(table.id)
       } else if (mode === 'seat-waitlist' && waitlistEntry && table.status === 'available') {
         onSeatWaitlistAtTable?.(table.id)
       } else {
-        onTablePress(table)
+        onTablePress(result)
       }
     },
     [mode, selectedServerId, waitlistEntry, onToggleTableServer, onSeatWaitlistAtTable, onTablePress]
@@ -144,25 +160,36 @@ export function SkiaFloorPlanView({
         </View>
       )}
 
-      {/* Stats bar */}
-      <View style={styles.statsBar}>
-        <View style={[styles.statBadge, { backgroundColor: Neo.lime }]}>
-          <Text style={styles.statText}>{stats.available} OPEN</Text>
-        </View>
-        <View style={[styles.statBadge, { backgroundColor: Neo.cyan }]}>
-          <Text style={styles.statText}>
-            {stats.seated} SEATED · {stats.seatedCovers} COV
+      {/* Stats bar - compact on phone */}
+      {isPhone ? (
+        <View style={styles.statsBarCompact}>
+          <Text style={styles.statTextCompact}>
+            <Text style={styles.statValueCompact}>{stats.available}</Text> OPEN · {' '}
+            <Text style={styles.statValueCompact}>{stats.seated}</Text> SEATED · {' '}
+            <Text style={styles.statValueCompact}>{stats.upcoming}</Text> SOON
           </Text>
         </View>
-        <View style={[styles.statBadge, { backgroundColor: Neo.orange }]}>
-          <Text style={styles.statText}>{stats.upcoming} SOON</Text>
+      ) : (
+        <View style={styles.statsBar}>
+          <View style={[styles.statBadge, { backgroundColor: Neo.lime }]}>
+            <Text style={styles.statText}>{stats.available} OPEN</Text>
+          </View>
+          <View style={[styles.statBadge, { backgroundColor: Neo.cyan }]}>
+            <Text style={styles.statText}>
+              {stats.seated} SEATED · {stats.seatedCovers} COV
+            </Text>
+          </View>
+          <View style={[styles.statBadge, { backgroundColor: Neo.orange }]}>
+            <Text style={styles.statText}>{stats.upcoming} SOON</Text>
+          </View>
         </View>
-      </View>
+      )}
 
       {/* Skia Canvas */}
       <View style={styles.canvasContainer} onLayout={handleLayout}>
         {containerSize.width > 0 && containerSize.height > 0 && (
           <SkiaFloorPlanCanvas
+            ref={canvasRef}
             tables={positionedTables}
             elements={elements.filter((e) => e.active)}
             selectedTableId={selectedTableId}
@@ -179,6 +206,8 @@ export function SkiaFloorPlanView({
             onPressOut={handlePressOut}
             selectedServerId={selectedServerId}
             pendingServerAssignments={pendingServerAssignments as Record<number, ServerAssignmentRecord | null>}
+            highlightedTableIds={highlightedTableIds}
+            currentTime={currentTime}
           />
         )}
 
@@ -222,7 +251,7 @@ export function SkiaFloorPlanView({
       </View>
     </View>
   )
-}
+})
 
 const styles = StyleSheet.create({
   container: {
@@ -280,6 +309,29 @@ const styles = StyleSheet.create({
     color: Neo.black,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     letterSpacing: 0.5,
+  },
+  statsBarCompact: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderBottomWidth: NeoBorder.thin,
+    borderBottomColor: Neo.black,
+    backgroundColor: Neo.white,
+  },
+  statTextCompact: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: Neo.black,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    letterSpacing: 0.5,
+    opacity: 0.8,
+  },
+  statValueCompact: {
+    fontWeight: '900',
+    color: Neo.black,
+    opacity: 1,
   },
   modeBar: {
     flexDirection: 'row',
