@@ -18,6 +18,7 @@ import type {
   Event,
   EventListItem,
   EventWithTimeslots,
+  EventImage,
   Timeslot,
   EventAvailability,
   EventReservation,
@@ -352,6 +353,21 @@ export function useEventReservations(eventId: number) {
     queryKey: ['event-reservations', eventId],
     queryFn: () => api.get<EventReservationsResponse>(`/api/admin/events/${eventId}/reservations`),
     enabled: !!eventId,
+  })
+}
+
+interface EventImagesResponse {
+  images: EventImage[]
+}
+
+export function useEventImages(eventId: number | null) {
+  const api = useApiClient()
+
+  return useQuery({
+    queryKey: ['event-images', eventId],
+    queryFn: () => api.get<EventImagesResponse>(`/api/admin/events/images?eventId=${eventId}`),
+    enabled: eventId !== null && eventId > 0,
+    staleTime: 1000 * 60 * 5, // 5 minutes - images don't change often
   })
 }
 

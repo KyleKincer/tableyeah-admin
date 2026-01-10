@@ -7,6 +7,7 @@ import type {
   GuestTagOption,
   WaitlistStatus,
   Event,
+  EventImage,
   CreateEventData,
   UpdateEventData,
   CreateTimeslotData,
@@ -801,6 +802,95 @@ export function useRefundReservation() {
       queryClient.invalidateQueries({ queryKey: ['reservation', variables.id] })
       queryClient.invalidateQueries({ queryKey: ['reservations'] })
       queryClient.invalidateQueries({ queryKey: ['event-reservations'] })
+    },
+  })
+}
+
+// Event Images
+
+interface UploadEventImageResult {
+  success: boolean
+  image: EventImage
+}
+
+export function useUploadEventImage() {
+  const api = useApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({
+      eventId,
+      uri,
+      mimeType,
+      altText,
+    }: {
+      eventId: number
+      uri: string
+      mimeType: string
+      altText?: string
+    }) => {
+      const formData = new FormData()
+      formData.append('eventId', eventId.toString())
+      formData.append('file', {
+        uri,
+        type: mimeType,
+        name: `event-${eventId}-${Date.now()}.${mimeType.split('/')[1] || 'jpg'}`,
+      } as any)
+      if (altText) formData.append('altText', altText)
+
+      return api.postFormData<UploadEventImageResult>(
+        '/api/admin/uploads/event-image/mobile',
+        formData
+      )
+    },
+    onSuccess: (_, { eventId }) => {
+      queryClient.invalidateQueries({ queryKey: ['events'] })
+      queryClient.invalidateQueries({ queryKey: ['event', eventId] })
+      queryClient.invalidateQueries({ queryKey: ['event-images', eventId] })
+    },
+  })
+}
+
+export function useDeleteEventImage() {
+  const api = useApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ imageId, eventId }: { imageId: number; eventId: number }) =>
+      api.delete<{ success: boolean }>(`/api/admin/events/images?id=${imageId}`),
+    onSuccess: (_, { eventId }) => {
+      queryClient.invalidateQueries({ queryKey: ['events'] })
+      queryClient.invalidateQueries({ queryKey: ['event', eventId] })
+      queryClient.invalidateQueries({ queryKey: ['event-images', eventId] })
+    },
+  })
+}
+
+export function useSetEventPrimaryImage() {
+  const api = useApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ imageId, eventId }: { imageId: number; eventId: number }) =>
+      api.put<{ success: boolean }>('/api/admin/events/images', { id: imageId, setAsPrimary: true }),
+    onSuccess: (_, { eventId }) => {
+      queryClient.invalidateQueries({ queryKey: ['events'] })
+      queryClient.invalidateQueries({ queryKey: ['event', eventId] })
+      queryClient.invalidateQueries({ queryKey: ['event-images', eventId] })
+    },
+  })
+}
+
+export function useReorderEventImages() {
+  const api = useApiClient()
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ eventId, imageIds }: { eventId: number; imageIds: number[] }) =>
+      api.patch<{ success: boolean }>('/api/admin/events/images', { eventId, imageIds }),
+    onSuccess: (_, { eventId }) => {
+      queryClient.invalidateQueries({ queryKey: ['event', eventId] })
+      queryClient.invalidateQueries({ queryKey: ['event-images', eventId] })
     },
   })
 }

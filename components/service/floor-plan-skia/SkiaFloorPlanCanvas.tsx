@@ -187,49 +187,66 @@ function calculateFitTransform(
 // Font configuration
 const fontFamily = Platform.select({ ios: 'Menlo', default: 'monospace' })
 
-const tableNumberFont = matchFont({
-  fontFamily,
-  fontSize: TABLE_NUMBER_FONT_SIZE,
-  fontWeight: 'bold',
-})
+// Create fonts lazily to ensure Skia is initialized
+function createFonts() {
+  return {
+    tableNumber: matchFont({
+      fontFamily,
+      fontSize: TABLE_NUMBER_FONT_SIZE,
+      fontWeight: 'bold',
+    }),
+    capacity: matchFont({
+      fontFamily,
+      fontSize: TABLE_CAPACITY_FONT_SIZE,
+      fontWeight: 'normal',
+    }),
+    badge: matchFont({
+      fontFamily,
+      fontSize: BADGE_FONT_SIZE,
+      fontWeight: 'bold',
+    }),
+    badgeName: matchFont({
+      fontFamily,
+      fontSize: 13,
+      fontWeight: '800',
+    }),
+    badgeTime: matchFont({
+      fontFamily,
+      fontSize: 14,
+      fontWeight: '800',
+    }),
+    tagIndicator: matchFont({
+      fontFamily,
+      fontSize: 10,
+      fontWeight: '800',
+    }),
+    elementLabel: matchFont({
+      fontFamily,
+      fontSize: ELEMENT_LABEL_FONT_SIZE,
+      fontWeight: 'normal',
+    }),
+  }
+}
 
-const capacityFont = matchFont({
-  fontFamily,
-  fontSize: TABLE_CAPACITY_FONT_SIZE,
-  fontWeight: 'normal',
-})
+// Cached fonts - created on first access
+let _fonts: ReturnType<typeof createFonts> | null = null
+function getFonts() {
+  if (!_fonts) {
+    _fonts = createFonts()
+  }
+  return _fonts
+}
 
-const badgeFont = matchFont({
-  fontFamily,
-  fontSize: BADGE_FONT_SIZE,
-  fontWeight: 'bold',
-})
-
-// Larger fonts for redesigned turn time badge
-const badgeNameFont = matchFont({
-  fontFamily,
-  fontSize: 13,
-  fontWeight: '800',
-})
-
-const badgeTimeFont = matchFont({
-  fontFamily,
-  fontSize: 14,
-  fontWeight: '800',
-})
-
-// Small font for tag indicators on tables
-const tagIndicatorFont = matchFont({
-  fontFamily,
-  fontSize: 10,
-  fontWeight: '800',
-})
-
-const elementLabelFont = matchFont({
-  fontFamily,
-  fontSize: ELEMENT_LABEL_FONT_SIZE,
-  fontWeight: 'normal',
-})
+// Extract fonts for use in renderers
+const {
+  tableNumber: tableNumberFont,
+  capacity: capacityFont,
+  badge: badgeFont,
+  badgeName: badgeNameFont,
+  badgeTime: badgeTimeFont,
+  tagIndicator: tagIndicatorFont,
+  elementLabel: elementLabelFont,
+} = getFonts()
 
 export const SkiaFloorPlanCanvas = forwardRef<SkiaFloorPlanCanvasRef, SkiaFloorPlanCanvasProps>(
   function SkiaFloorPlanCanvas({

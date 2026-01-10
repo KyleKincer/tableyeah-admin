@@ -338,6 +338,17 @@ export interface EventListItem {
   totalCovers: number
 }
 
+// Event image
+export interface EventImage {
+  id: number
+  eventId: number
+  url: string
+  altText: string | null
+  sortOrder: number
+  isPrimary: boolean
+  createdAt: string
+}
+
 // Event timeslot
 export interface Timeslot {
   id: number

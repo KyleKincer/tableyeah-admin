@@ -18,11 +18,12 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
 
 import { Neo, NeoBorder, NeoShadow, getPaymentModeLabel } from '@/constants/theme'
-import { useEvent, useEventTimeslots, useEventReservations } from '@/lib/api/queries'
+import { useEvent, useEventTimeslots, useEventReservations, useEventImages } from '@/lib/api/queries'
 import { useUpdateEvent, useDeleteEvent } from '@/lib/api/mutations'
 import { useQueryClient } from '@tanstack/react-query'
 import type { Event } from '@/lib/types'
 import { PaymentModeBadge } from '@/components/event/PaymentBadge'
+import { EventImagesSection } from '@/components/event/EventImagesSection'
 import { DatePicker } from '@/components/ui/DatePicker'
 import { TimePicker } from '@/components/ui/TimePicker'
 
@@ -219,6 +220,7 @@ export default function EventDetailScreen() {
   const { data: event, isLoading, refetch } = useEvent(eventId)
   const { data: timeslotsData } = useEventTimeslots(eventId)
   const { data: reservationsData } = useEventReservations(eventId)
+  const { data: imagesData, refetch: refetchImages } = useEventImages(eventId)
 
   const updateEvent = useUpdateEvent()
   const deleteEvent = useDeleteEvent()
@@ -226,6 +228,7 @@ export default function EventDetailScreen() {
   const timeslots = timeslotsData?.timeslots || []
   const reservations = reservationsData?.reservations || []
   const summary = reservationsData?.summary
+  const images = imagesData?.images || []
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true)
@@ -635,6 +638,16 @@ export default function EventDetailScreen() {
           />
         </View>
 
+        {/* Images Section */}
+        <View style={styles.imagesSection}>
+          <EventImagesSection
+            eventId={eventId}
+            images={images}
+            primaryImageUrl={null}
+            onImagesChanged={() => refetchImages()}
+          />
+        </View>
+
         {/* Delete Button */}
         <View style={styles.deleteContainer}>
           <NeoButton
@@ -990,6 +1003,9 @@ const styles = StyleSheet.create({
   },
   paymentInfo: {
     flexDirection: 'row',
+  },
+  imagesSection: {
+    marginTop: 24,
   },
   deleteContainer: {
     marginTop: 48,
