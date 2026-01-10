@@ -277,6 +277,73 @@ export function NotificationsSettingsContent() {
         </View>
       </View>
 
+      {/* Feedback Surveys */}
+      <View style={styles.section}>
+        <SectionHeader title="FEEDBACK SURVEYS" />
+        <View style={styles.card}>
+          <SettingRow
+            label="Enable Feedback Surveys"
+            description="Send guests a satisfaction survey after their visit"
+            value={localSettings.feedbackEnabled}
+            onToggle={(v) => updateLocal({ feedbackEnabled: v })}
+          />
+          {localSettings.feedbackEnabled && (
+            <>
+              <NumberStepper
+                label="Minutes after visit"
+                value={localSettings.feedbackDelayMinutes}
+                onChange={(v) => updateLocal({ feedbackDelayMinutes: v })}
+                min={15}
+                max={1440}
+                step={15}
+                suffix="m"
+              />
+              <View style={styles.divider} />
+              <Text style={styles.subheader}>REVIEW SITE URLS</Text>
+              <Text style={styles.inputHint}>
+                Guests who rate 4+ stars will be prompted to leave a review
+              </Text>
+              <View style={styles.urlInputContainer}>
+                <Text style={styles.inputLabel}>GOOGLE REVIEW URL</Text>
+                <TextInput
+                  style={styles.textInputSingle}
+                  value={localSettings.googleReviewUrl || ''}
+                  onChangeText={(v) => updateLocal({ googleReviewUrl: v || null })}
+                  placeholder="https://g.page/r/..."
+                  placeholderTextColor={Neo.black + '40'}
+                  keyboardType="url"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+              </View>
+              <View style={styles.urlInputContainer}>
+                <Text style={styles.inputLabel}>YELP REVIEW URL</Text>
+                <TextInput
+                  style={styles.textInputSingle}
+                  value={localSettings.yelpReviewUrl || ''}
+                  onChangeText={(v) => updateLocal({ yelpReviewUrl: v || null })}
+                  placeholder="https://yelp.com/writeareview/..."
+                  placeholderTextColor={Neo.black + '40'}
+                  keyboardType="url"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+              </View>
+              <View style={styles.divider} />
+              <NumberStepper
+                label="Review prompt threshold"
+                value={localSettings.reviewPromptThreshold}
+                onChange={(v) => updateLocal({ reviewPromptThreshold: v })}
+                min={1}
+                max={5}
+                step={1}
+                suffix="★"
+              />
+            </>
+          )}
+        </View>
+      </View>
+
       {/* Staff Notifications */}
       <View style={styles.section}>
         <SectionHeader title="STAFF NOTIFICATIONS" />
@@ -539,6 +606,9 @@ const styles = StyleSheet.create({
   emailInputContainer: {
     paddingTop: 8,
   },
+  urlInputContainer: {
+    marginTop: 12,
+  },
   inputLabel: {
     fontSize: 11,
     fontWeight: '700',
@@ -564,6 +634,16 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     minHeight: 60,
     textAlignVertical: 'top',
+  },
+  textInputSingle: {
+    backgroundColor: Neo.cream,
+    borderWidth: NeoBorder.thin,
+    borderColor: Neo.black,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 13,
+    color: Neo.black,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   saveContainer: {
     marginTop: 8,

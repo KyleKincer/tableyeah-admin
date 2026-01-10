@@ -16,7 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
 
 import { Neo, NeoBorder, NeoShadow, getStatusColor } from '@/constants/theme'
-import { useReservation } from '@/lib/api/queries'
+import { useReservation, useSmsHistory } from '@/lib/api/queries'
 import {
   useSeatReservation,
   useCompleteReservation,
@@ -34,7 +34,7 @@ import { NotesEditModal } from '@/components/reservation/NotesEditModal'
 import { ReservationEditModal } from '@/components/reservation/ReservationEditModal'
 import { ServerPickerModal } from '@/components/server/ServerPicker'
 import { useDeviceType } from '@/lib/hooks/useDeviceType'
-import type { ReservationStatus, PaymentStatus } from '@/lib/types'
+import type { ReservationStatus, PaymentStatus, SmsLog, SmsLogType, SmsLogStatus } from '@/lib/types'
 
 function InfoRow({ label, value }: { label: string; value: string | null | undefined }) {
   if (!value) return null
@@ -149,6 +149,142 @@ function TurnTimeDisplay({ seatedAt, covers }: { seatedAt: string; covers: numbe
   )
 }
 
+// SMS type labels
+const SMS_TYPE_LABELS: Record<SmsLogType, string> = {
+  BOOKING: 'Booking',
+  CONFIRMATION: 'Confirmation',
+  CANCELLATION: 'Cancellation',
+  MODIFICATION: 'Modification',
+  REMINDER: 'Reminder',
+  POST_VISIT: 'Post-Visit',
+  WAITLIST_JOIN: 'Waitlist',
+  WAITLIST_READY: 'Table Ready',
+  REPLY_CONFIRM: 'Confirmed',
+  REPLY_CANCEL: 'Cancelled',
+  REPLY_HELP: 'Help Request',
+  REPLY_UNKNOWN: 'Unknown Reply',
+}
+
+function getSmsStatusStyle(status: SmsLogStatus): { bgColor: string; textColor: string; label: string } {
+  switch (status) {
+    case 'DELIVERED':
+      return { bgColor: Neo.lime, textColor: Neo.black, label: 'Delivered' }
+    case 'SENT':
+      return { bgColor: Neo.cyan, textColor: Neo.black, label: 'Sent' }
+    case 'FAILED':
+      return { bgColor: Neo.pink, textColor: Neo.black, label: 'Failed' }
+    case 'RECEIVED':
+      return { bgColor: Neo.purple, textColor: Neo.white, label: 'Received' }
+    case 'QUEUED':
+      return { bgColor: Neo.cream, textColor: Neo.black, label: 'Queued' }
+    default:
+      return { bgColor: Neo.cream, textColor: Neo.black, label: status }
+  }
+}
+
+function SmsHistorySection({
+  smsLogs,
+  isLoading,
+}: {
+  smsLogs: SmsLog[] | undefined
+  isLoading: boolean
+}) {
+  const [expanded, setExpanded] = useState(false)
+
+  if (isLoading) {
+    return (
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>SMS HISTORY</Text>
+        <ActivityIndicator size="small" color={Neo.black} />
+      </View>
+    )
+  }
+
+  if (!smsLogs || smsLogs.length === 0) {
+    return (
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>SMS HISTORY</Text>
+        <Text style={styles.noNotesText}>No SMS messages</Text>
+      </View>
+    )
+  }
+
+  const displayLogs = expanded ? smsLogs : smsLogs.slice(0, 3)
+  const hasMore = smsLogs.length > 3
+
+  const formatDateTime = (isoString: string): string => {
+    try {
+      const date = new Date(isoString)
+      return format(date, 'MMM d, h:mm a')
+    } catch {
+      return isoString
+    }
+  }
+
+  return (
+    <View style={styles.card}>
+      <View style={styles.smsHeader}>
+        <View style={styles.smsHeaderLeft}>
+          <Text style={styles.cardTitle}>SMS HISTORY</Text>
+          <View style={styles.smsBadge}>
+            <Text style={styles.smsBadgeText}>{smsLogs.length}</Text>
+          </View>
+        </View>
+        {hasMore && (
+          <Pressable
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+              setExpanded(!expanded)
+            }}
+          >
+            <Text style={styles.smsExpandButton}>
+              {expanded ? 'SHOW LESS' : 'SHOW ALL'}
+            </Text>
+          </Pressable>
+        )}
+      </View>
+
+      {displayLogs.map((log) => {
+        const isInbound = log.direction === 'INBOUND'
+        const statusStyle = getSmsStatusStyle(log.status)
+
+        return (
+          <View key={log.id} style={styles.smsItem}>
+            {/* Direction indicator */}
+            <View style={[styles.smsDirection, { backgroundColor: isInbound ? `${Neo.purple}30` : `${Neo.cyan}30` }]}>
+              <Text style={[styles.smsDirectionText, { color: isInbound ? Neo.purple : Neo.cyan }]}>
+                {isInbound ? '↓' : '↑'}
+              </Text>
+            </View>
+
+            {/* Content */}
+            <View style={styles.smsContent}>
+              <View style={styles.smsTypeRow}>
+                <Text style={styles.smsTypeLabel}>
+                  {SMS_TYPE_LABELS[log.smsType] || log.smsType}
+                </Text>
+                <View style={[styles.smsStatusBadge, { backgroundColor: statusStyle.bgColor }]}>
+                  <Text style={[styles.smsStatusText, { color: statusStyle.textColor }]}>
+                    {statusStyle.label}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Body for inbound messages */}
+              {isInbound && log.body && (
+                <Text style={styles.smsBody}>"{log.body}"</Text>
+              )}
+
+              {/* Timestamp */}
+              <Text style={styles.smsTimestamp}>{formatDateTime(log.createdAt)}</Text>
+            </View>
+          </View>
+        )
+      })}
+    </View>
+  )
+}
+
 function NeoButton({
   label,
   onPress,
@@ -205,6 +341,7 @@ export default function ReservationDetailScreen() {
   const [showEditModal, setShowEditModal] = useState(false)
 
   const { data: reservation, isLoading, error } = useReservation(Number(id))
+  const { data: smsData, isLoading: smsLoading } = useSmsHistory(Number(id))
   const seatMutation = useSeatReservation()
   const completeMutation = useCompleteReservation()
   const cancelMutation = useCancelReservation()
@@ -650,6 +787,9 @@ export default function ReservationDetailScreen() {
               )}
             </View>
 
+            {/* SMS History */}
+            <SmsHistorySection smsLogs={smsData?.smsLogs} isLoading={smsLoading} />
+
             {/* Payment Section for Event Reservations */}
             {hasPaymentInfo && reservation.payment_status && (
               <View style={[styles.card, { backgroundColor: Neo.white }]}>
@@ -974,6 +1114,9 @@ export default function ReservationDetailScreen() {
             <Text style={styles.noNotesText}>No admin notes</Text>
           )}
         </View>
+
+        {/* SMS History */}
+        <SmsHistorySection smsLogs={smsData?.smsLogs} isLoading={smsLoading} />
 
         {/* Payment Section for Event Reservations */}
         {hasPaymentInfo && reservation.payment_status && (
@@ -1679,5 +1822,97 @@ const styles = StyleSheet.create({
   paymentActions: {
     gap: 12,
     marginTop: 8,
+  },
+  // SMS History styles
+  smsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  smsHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  smsBadge: {
+    backgroundColor: Neo.black,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  smsBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: Neo.white,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  smsExpandButton: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: Neo.black,
+    opacity: 0.6,
+    letterSpacing: 1,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  smsItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    paddingVertical: 12,
+    borderTopWidth: NeoBorder.thin,
+    borderTopColor: `${Neo.black}20`,
+  },
+  smsDirection: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  smsDirectionText: {
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  smsContent: {
+    flex: 1,
+  },
+  smsTypeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  smsTypeLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: Neo.black,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  smsStatusBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  smsStatusText: {
+    fontSize: 9,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  smsBody: {
+    marginTop: 4,
+    fontSize: 12,
+    color: Neo.black,
+    opacity: 0.8,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  smsTimestamp: {
+    marginTop: 4,
+    fontSize: 10,
+    color: Neo.black,
+    opacity: 0.5,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
 })

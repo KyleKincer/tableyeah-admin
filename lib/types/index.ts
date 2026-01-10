@@ -488,12 +488,55 @@ export interface NotificationSettings {
   postVisitDelayHours: number
   smsEnabled: boolean
   smsPhoneRequired: boolean
+  // Feedback survey settings
+  feedbackEnabled: boolean
+  feedbackDelayMinutes: number
+  googleReviewUrl: string | null
+  yelpReviewUrl: string | null
+  reviewPromptThreshold: number
+  // Staff notification settings
   staffNotificationsEnabled: boolean
   staffNotifyOnNewBooking: boolean
   staffNotifyOnConfirmation: boolean
   staffNotifyOnCancellation: boolean
   staffNotifyOnModification: boolean
   staffNotificationEmails: string | null
+}
+
+// Feedback survey
+export interface FeedbackSurvey {
+  id: number
+  uuid: string
+  reservationId: number
+  restaurantId: string
+  overallRating: number | null
+  foodRating: number | null
+  serviceRating: number | null
+  comment: string | null
+  sentAt: string
+  respondedAt: string | null
+  reviewPromptShown: boolean
+  reviewClicked: boolean
+  reviewPlatform: string | null
+  createdAt: string
+  updatedAt: string
+  // Joined reservation data
+  guestName?: string
+  covers?: number
+  reservationTime?: string
+}
+
+// Feedback statistics
+export interface FeedbackStats {
+  totalSent: number
+  totalResponses: number
+  responseRate: number
+  averageOverallRating: number | null
+  averageFoodRating: number | null
+  averageServiceRating: number | null
+  reviewPromptsShown: number
+  reviewClicks: number
+  reviewClickRate: number
 }
 
 // Seating settings
@@ -920,4 +963,36 @@ export interface AdjustInventoryRequest {
   id: number
   adjustment?: number // positive or negative delta
   setQuantity?: number // absolute value
+}
+
+// ============================================
+// SMS Log Types
+// ============================================
+
+export type SmsDirection = 'INBOUND' | 'OUTBOUND'
+
+export type SmsLogType =
+  | 'BOOKING'
+  | 'CONFIRMATION'
+  | 'CANCELLATION'
+  | 'MODIFICATION'
+  | 'REMINDER'
+  | 'POST_VISIT'
+  | 'WAITLIST_JOIN'
+  | 'WAITLIST_READY'
+  | 'REPLY_CONFIRM'
+  | 'REPLY_CANCEL'
+  | 'REPLY_HELP'
+  | 'REPLY_UNKNOWN'
+
+export type SmsLogStatus = 'SENT' | 'DELIVERED' | 'FAILED' | 'RECEIVED' | 'QUEUED'
+
+export interface SmsLog {
+  id: number
+  direction: SmsDirection
+  smsType: SmsLogType
+  body: string | null
+  status: SmsLogStatus
+  createdAt: string
+  deliveredAt: string | null
 }

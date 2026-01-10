@@ -43,6 +43,11 @@ import type {
   ProductDetail,
   ProductVariant,
   ProductImage,
+  // Feedback types
+  FeedbackSurvey,
+  FeedbackStats,
+  // SMS types
+  SmsLog,
 } from '../types'
 
 interface ActivityResponse {
@@ -679,5 +684,69 @@ export function useProductImages(productId: number | null) {
     queryFn: () => api.get<{ images: ProductImage[] }>(`/api/admin/products/images?productId=${productId}`),
     enabled: productId !== null,
     staleTime: 1000 * 60 * 5, // 5 minutes
+  })
+}
+
+// ============================================
+// Feedback Queries
+// ============================================
+
+interface FeedbackResponse {
+  surveys: FeedbackSurvey[]
+  stats: FeedbackStats
+}
+
+export function useFeedback(params?: {
+  limit?: number
+  offset?: number
+  hasResponse?: boolean
+}) {
+  const api = useApiClient()
+  const queryParams = new URLSearchParams()
+
+  if (params?.limit) queryParams.set('limit', params.limit.toString())
+  if (params?.offset) queryParams.set('offset', params.offset.toString())
+  if (params?.hasResponse !== undefined) queryParams.set('hasResponse', params.hasResponse.toString())
+
+  const queryString = queryParams.toString()
+  const endpoint = `/api/admin/feedback${queryString ? `?${queryString}` : ''}`
+
+  return useQuery({
+    queryKey: ['feedback', params],
+    queryFn: () => api.get<FeedbackResponse>(endpoint),
+    staleTime: 1000 * 60, // 1 minute
+    placeholderData: keepPreviousData,
+  })
+}
+
+export function useFeedbackStats() {
+  const api = useApiClient()
+
+  return useQuery({
+    queryKey: ['feedback-stats'],
+    queryFn: async () => {
+      const response = await api.get<FeedbackResponse>('/api/admin/feedback?limit=0')
+      return response.stats
+    },
+    staleTime: 1000 * 60 * 5, // 5 minutes
+  })
+}
+
+// ============================================
+// SMS Queries
+// ============================================
+
+interface SmsHistoryResponse {
+  smsLogs: SmsLog[]
+}
+
+export function useSmsHistory(reservationId: number | null) {
+  const api = useApiClient()
+
+  return useQuery({
+    queryKey: ['sms-history', reservationId],
+    queryFn: () => api.get<SmsHistoryResponse>(`/api/admin/reservations/${reservationId}/sms`),
+    enabled: reservationId !== null,
+    staleTime: 1000 * 60, // 1 minute
   })
 }
